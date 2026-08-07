@@ -1,0 +1,318 @@
+# Lightrack POC1 — pipeline configuration
+# Every number here is tagged with its epistemic status.
+#   confirmed = stated in the source deck / briefing
+#   derived   = arithmetic from confirmed numbers
+#   inferred  = hypothesis, NOT yet verified
+#   measured  = established from this dataset in Phase 0
+# Do not hard-code any of these values in code. Read them from here.
+
+[paths]
+data_dir = "C:/Users/onurk/Desktop/data"
+glob     = "*.txt"
+out_dir  = "C:/Users/onurk/Desktop/data/out"
+
+[format]
+# [measured, Phase 0] TAB-delimited text.
+delimiter = "\t"
+# [measured, Phase 0] The header row is MALFORMED: it declares only
+# "Time [sec]\tWavelength 1[nm]\t" (2 fields) while every data row has 13.
+# It is byte-identical in all 93 files. It must be skipped, never parsed.
+header_rows = 1
+n_columns   = 13
+# [measured, Phase 0] The decimal separator VARIES FILE BY FILE ('.' or ',').
+# It is not a function of date. It MUST be sniffed per file.
+# Setting this to a fixed value will silently corrupt ~half the archive.
+sniff_decimal = true
+encoding = "ascii"
+
+[filename]
+# [measured, Phase 0] e.g. 20260514T142617,366Z.txt
+# ISO 8601 UTC with milliseconds; the '.' before ms was replaced by ',' so the
+# name is legal on Windows. The trailing Z is real: these are UTC.
+pattern    = "%Y%m%dT%H%M%S,%fZ"
+timezone   = "UTC"
+# [confirmed, briefing §10] Belgian local time is UTC+2 in May-July 2026.
+local_utc_offset_hours = 2
+
+[acquisition]
+# [confirmed, briefing §5] and [measured, Phase 0]: dt = 0.002 s exactly,
+# uniform, in every file. 500 Hz is verified from the data, not assumed.
+fs_hz = 500.0
+# [measured, Phase 0] The briefing's "3 min per file, 20 files/hour, 480/day"
+# is WRONG, and the files are NOT short. A-01 is closed: on 2026-05-19 every
+# inter-file interval is an integer multiple of the slot below (mean residual
+# 1.4 s, consistent with the +/-2 s per-file duration jitter), so recording is
+# contiguous with zero dead time.
+slot_s = 144.5              # true cadence [measured]
+files_per_hour = 24.9       # 3600 / 144.5 [derived]
+files_per_day = 598         # 86400 / 144.5 [derived]
+observed_rows_min = 71830
+observed_rows_max = 73630
+observed_duration_s_min = 143.658
+observed_duration_s_max = 147.258
+
+[units]
+# [measured, Phase 0] Stored quantity is ABSOLUTE wavelength in nm
+# (range 1515-1567 nm). NOT pm, NOT baseline-subtracted.
+storage_unit = "nm"
+storage_kind = "absolute_wavelength"
+# Work in pm internally per briefing §5.3. 1 nm = 1000 pm.
+nm_to_pm = 1000.0
+
+[physics]
+# [confirmed, briefing §3.2]
+strain_pm_per_ue      = 1.2
+temperature_pm_per_C  = 10.0
+# [confirmed but NOT transferable to POC1 pad geometry - briefing §3.2 warning]
+# The 2022 pad was 125x200 mm; the POC1 pad is 250x30 mm. DO NOT use this to
+# convert pm -> tonnes until regressed against known masses. Left here only so
+# that any code touching it must read this comment.
+load_pm_per_t_2022_pad = 24.2
+load_pm_per_t_poc1_pad = "UNKNOWN"
+
+[geometry]
+# [confirmed, briefing §4.3]
+head1_to_head2_m = 15.0
+head2_to_head3_m = 10.0
+# [confirmed, briefing §3.4] Effective peak width corresponds to ~2.2 m of track.
+peak_track_extent_m = 2.2
+# [derived, briefing §3.4] samples_per_peak = fs * 7.92 / v_kmh = 3960/v_kmh at 500 Hz
+samples_per_peak_numerator_at_500hz = 3960.0
+
+[detect]
+# DIAGNOSTIC-chain axle timing only. The safety chain (X-crossing, D-crossing)
+# gets its own block in Phase 3 and must NOT reuse these values - briefing §7.5:
+# the two jobs need opposite operating points and will fight each other if they
+# share a chain.
+#
+# [inferred] Smallest credible axle spacing. Below the ~2.6 m bogie wheelbase so
+# that a bogie pair is never merged, but above the ~2.2 m peak extent so that a
+# single axle is never split. Feeds a SPEED-ADAPTIVE separation, never a fixed
+# sample count - at 32-141 km/h this varies 4x.
+min_axle_spacing_m = 2.0
+separation_fraction = 0.7
+
+# [derived] ABSOLUTE amplitude gate — is there a train in this record at all?
+#
+# Every other threshold below is RELATIVE: `passage_envelope_fraction` cuts at a
+# fraction of the envelope's own maximum, so a record of pure noise normalises to
+# itself and yields a window, peaks, a count and an occupancy verdict. POC1 could
+# not see this, because that delivery was pre-filtered to records containing
+# trains. The July delivery contains 41 empty records and the frozen pipeline
+# reported a median of 901 "axles" in them (A-53).
+#
+# The value is READ OFF THE DATA, not chosen: across 609 July records the peak
+# |head-1| excursion has an empty interval from 15.29 pm to 99.10 pm, and this is
+# its geometric midpoint. Every one of POC1's 93 records sits far above it, so no
+# POC1 result changes.
+absolute_gate_pm = 38.93
+
+# Passage bracketing. A train occupies only a few seconds of a 145 s record, so
+# detection MUST be confined to the passage before any threshold is applied.
+# Gating on the record-wide noise floor instead accepted 789 "axles" per record.
+passage_envelope_fraction = 0.15   # of the envelope's own max
+passage_gap_s = 1.5                # must exceed the quiet gap between bogies
+passage_pad_peaks = 1.0            # padding, in peak widths
+
+# Peak gate INSIDE the passage: the larger of a noise-relative and an
+# amplitude-relative criterion.
+prominence_sigmas = 4.0                # vs the quiet baseline
+prominence_amplitude_fraction = 0.20   # vs the passage amplitude
+height_amplitude_fraction = 0.15
+amplitude_percentile = 99.0            # robust stand-in for "passage amplitude"
+
+# Sanity bracket on axles per record. Not a safety check.
+min_axles_for_passage = 4
+max_axles_for_passage = 200
+
+# Half-width of the amplitude search window, as a fraction of samples_per_peak.
+# [measured, A-20] At 0.5 the p90 offset reaches 93 % of the half-window above
+# 120 km/h, so the worst ~10 % of axles are read at the window edge and
+# under-measured. Harmless for Phase 1 (2 records in that bin, median offset
+# <= 4 samples) but NOT for Phase 3/5, where those speeds are the point.
+amplitude_window_fraction = 0.5
+
+# +/- fraction for the free lag refinement (speed.refine_lags).
+# [measured, A-21] 0.25 is wide enough at >80 km/h to admit a bogie-axle-spacing
+# alias (~2.6 m ~ 47 samples at 100 km/h), which produces a spurious 1.88 head
+# spacing ratio. Narrowing this must be done speed-adaptively, not by a constant.
+refine_lag_fraction = 0.25
+
+[occupancy]
+# Stationary-state detection. MUST use a long baseline: the diagnostic 1 s
+# rolling median erases any strain sustained beyond ~1 s, which is exactly the
+# signature of a stopped train.
+slow_baseline_s = 30.0
+plateau_sigmas = 8.0        # excursion gate vs the quiet floor
+min_stationary_s = 3.0      # far longer than any peak at any speed in range
+join_gap_s = 0.5
+# A long plateau FULL of peaks is a slow train, not a stopped one, and must not
+# be suppressed. Density is peaks per nominal peak width inside the plateau.
+inner_peak_sigmas = 6.0
+max_peak_density = 0.25
+
+[safety]
+# SIL4-CANDIDATE COUNTING PATH. Deterministic and explainable only: thresholds,
+# derivatives and voting. No ML (briefing §2). These parameters are SEPARATE
+# from [detect] on purpose and must never be shared - briefing §7.5 shows the
+# counting and anomaly jobs need opposite operating points and will fight each
+# other through a common filter.
+
+# Speed-adaptive low-pass. The reference implementation used a fixed 10 Hz at
+# 250 Hz sampling (briefing §7.4), tuned around 60 km/h where a peak lasts
+# 132 ms. Expressed as a multiple of 1/peak_duration that is 1.3, which is what
+# is used here - so the cutoff tracks speed instead of destroying peaks at
+# 141 km/h, the number-one failure mode in this field (briefing §3.4, §10).
+lpf_cycles_per_peak = 1.3
+lpf_order = 4
+
+# X-crossing hysteresis, briefing §7.4. X = (lowest peak) - (highest trough).
+x_rise_fraction = 0.6667      # 2/3 X
+x_fall_fraction = 0.3333      # 1/3 X
+# Minimum rising->falling duration, as a fraction of the peak duration. The
+# reference used T = 24 ms against 88-132 ms peaks, i.e. ~0.18 of peak duration.
+x_min_duration_fraction = 0.18
+# Robust estimates of the peak and trough levels within a passage.
+x_peak_percentile = 25.0      # low quantile of the maxima = "lowest peak"
+# "Maximum of the troughs" means the SHALLOWEST inter-axle valley - the one that
+# is hardest to separate two axles across. p75 was too low: it let the deep
+# compression lobe of an off-centre pad (PAD 3, +7.5 cm) drag the whole
+# threshold band down, and D-crossing then over-counted 16 axles against a true
+# 12. p90 keeps the estimate near the shallow within-bogie valleys where it
+# belongs, while staying robust to a single outlier.
+x_trough_percentile = 90.0
+# Gate for what counts as a peak at all, as a fraction of the passage maximum.
+# Without this, the near-zero ripple in the padded and inter-bogie regions is
+# admitted as "peaks" and "troughs", X collapses, and both detectors fire on
+# noise. Measured effect of omitting it: within-head unanimity 0-1 %.
+x_peak_floor_fraction = 0.30
+
+# D-crossing, briefing §7.4. The lower cut is essential: without it the local
+# maximum in the valley BETWEEN two bogies is read as a wheel.
+# Fraction of the PEAK level (not of X above the trough - see safety.py for why).
+d_lower_cut_fraction = 0.35
+
+# Threshold anchoring. "trough" is the briefing §7.4 form (band measured up from
+# the highest inter-axle valley). "peak" references the positive-peak level only
+# and lets NO trough statistic into the band - compression-lobe depth is a
+# function of sleeper-bay position, not of wheel load, and it leaks in otherwise.
+anchor_mode = "peak"
+peak_rise_fraction = 0.50
+peak_fall_fraction = 0.25
+
+# Half-wave rectify before low-passing, closing the residual path by which
+# compression-lobe depth reaches the detector through the filter rather than
+# through the thresholds (A-39 residual). Measured in A-41.
+rectify_before_filter = false
+
+# Per-segment speed adaptation (briefing §7.6). Nominal segment length; the
+# number of segments is derived from the passage length so short passages stay
+# single-segment.
+segment_s = 2.0
+segment_margin_peaks = 3.0
+# Reference required 4 derivative values (2 pos, 2 neg) = 6 signal points at
+# 250 Hz. Kept as a floor and made speed-adaptive above it.
+d_min_points = 6
+d_points_per_peak_fraction = 0.2
+
+[baseline]
+# [inferred, briefing §5.4] Slide 21 title "lambda - lambda-delta (500)" suggests
+# a 500-sample (1 s at 500 Hz) rolling baseline. Reproduce and compare.
+rolling_window_samples = 500
+
+[channels]
+# [measured, Phase 0] Column order in the file, left to right after the time
+# column. These are the FBG centre wavelengths, sorted DESCENDING. This is the
+# interrogator's spectral sort order.
+# CRITICAL: spectral order is NOT known to equal PAD number. The fibre is a
+# serial WDM chain; which grating sits at which trackside position depends on
+# splice order, which is not documented. See ASSUMPTIONS.md A-04.
+column_order = "descending_wavelength"
+nominal_centres_nm = [
+  1566.5, 1562.2, 1557.0, 1552.7, 1547.6, 1542.9,
+  1537.7, 1533.9, 1528.7, 1524.5, 1519.4, 1515.8,
+]
+
+[channel_to_pad]
+# Phase 0 result. Read DATA_DICTIONARY.md §10 before using any of this.
+status = "head_resolved_pad_partial"
+
+# [derived, high confidence] Head grouping. Three independent lines of evidence:
+# lag clustering, the 15 m:10 m separation ratio (two speed estimates agreeing
+# to 1-4.5 % vs ~80 % for the alternative), and direct reading of the raw plot.
+head_of_channel = [3, 3, 3, 3, 2, 2, 2, 2, 1, 1, 1, 1]
+
+# [INFERRED] Full mapping: ch_k -> PAD (13 - k), a straight spectral reversal.
+# Phase 1 TESTS this; it is not yet proven. Four supporting strands:
+#
+#  1. WDM comb structure [measured]. Spacings alternate tight (3.64-4.71 nm)
+#     within (ch01,ch02) (ch03,ch04) (ch05,ch06) (ch07,ch08) (ch09,ch10)
+#     (ch11,ch12) and wide+uniform (5.10-5.26 nm) between them: the gratings
+#     were written in pairs. Under the reversal, five of six comb pairs land on
+#     PAD pairs sharing head AND rail AND sleeper-bay position (11+12, 9+10,
+#     5+6, 3+4, 1+2); the sixth (7+8) shares head and the +3 cm offset.
+#  2. ch04 = PAD 9  [high]  +115/-275 pm vs the deck's +100/-300; amplify-then-
+#     collapse 1.00 -> 5.60 -> 0.12.
+#  3. ch02 = PAD 11 [high]  collapse to 0.23 by measurement 3, matching exactly.
+#  4. ch07 = PAD 6  [high]  falls to ~0.38-0.45 and plateaus, in Head 2 where
+#     PAD 6 lives; and ch06 = PAD 7 then gives 0.67 vs the deck's ~0.75.
+#
+# Given the comb pairing plus anchors 2+3, Head 3 is forced: (ch03,ch04)={9,10}
+# so ch03=PAD 10, and (ch01,ch02)={11,12} so ch01=PAD 12. Head 2 is forced by
+# anchor 4. In Head 1 the PAIR assignment is forced (ch11,ch12 carry the
+# +127/-49 and +131/-47 pm signature matching the deck's PAD 1 reference of
+# +125/-50, so they are {PAD 1,2}); the order WITHIN each Head 1 pair rests on
+# the reversal pattern alone. PAD 1 vs 2 and PAD 3 vs 4 are nominally identical
+# sensors, so this is immaterial except when reproducing a deck figure that
+# names PAD 1 specifically.
+#
+# Earlier counter-evidence (within-head sub-lag pairing) is DISCOUNTED: it was
+# measured on ch02 and ch04, the two channels independently identified as
+# degraded, and A-13 already established that sensitivity differences bias lag
+# estimates.
+pad_of_channel = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
+
+# Consequence to keep in view: ch03 = PAD 10 (clipse, the deck's declared
+# winner) and ch01 = PAD 12 (taraude). If Phase 1 shows PAD 10 less stable than
+# PAD 12, the deck's verdict is under tension - report it, do not smooth it.
+
+[campaign]
+# [derived] The 15-measurement durability series (briefing §8, §10).
+# Exactly 15 sessions between the confirmed J1=15/05 and J15=02/06.
+# 05-19 is [inferred] — it is a morning sweep, not the usual midday session.
+# 05-14 (install day) and 05-18 (off-hours) are NOT part of the series.
+measurement_dates = [
+  "2026-05-15", "2026-05-19", "2026-05-20", "2026-05-21", "2026-05-22",
+  "2026-05-23", "2026-05-24", "2026-05-25", "2026-05-26", "2026-05-28",
+  "2026-05-29", "2026-05-30", "2026-05-31", "2026-06-01", "2026-06-02",
+]
+
+[speed]
+# [measured, Phase 0] Constrained time-of-flight over all 93 records, keeping
+# only records whose two-lag fit score clears the gate. Records are rejected on
+# SCORE, never on speed plausibility - rejecting on plausibility would hide the
+# very outliers that reveal a broken estimator.
+min_fit_score = 0.70
+observed_min_kmh = 32.5          # score-gated
+observed_median_kmh = 83.5       # score-gated
+observed_max_kmh = 141.0         # score-gated
+# The two records that solved at 188.2 and 199.5 km/h carry the two LOWEST fit
+# scores in the entire set (0.438 and 0.431, against a median of 0.879) and
+# their alternative-hypothesis scores are equal or higher - i.e. the geometry
+# is not resolved for them at all. Both are rejected. AM08 tops out at 160 km/h.
+# [measured] Direction split. Which physical end is "In"/"Out" is still unknown,
+# so no sign convention is defined yet. See ASSUMPTIONS.md A-12.
+n_head1_to_head3 = 82
+n_head3_to_head1 = 11
+
+[campaign_quality]
+# [measured] Slot retention per day, from the exact-multiple gap structure.
+# 2026-05-19 is the ONLY day that both spans a long window (6.14 h, 154 slots)
+# and retains at a rate matching the deck's own filter (20.1 % vs 80/480=17 %).
+# It is therefore the only day plausibly representing a COMPLETE retained set.
+# Counting-accuracy statistics belong on 05-19 and must be labelled
+# "for this window" - other days are too short and too sparse to support them.
+complete_window_date = "2026-05-19"
+complete_window_files = 31
+complete_window_slots = 154
+complete_window_retention_pct = 20.1
