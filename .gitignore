@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.csv
+*.xlsx
+*.xls
+*.xml
+*.png
+*.jpg
+*.jpeg
+*.html
+*.txt
+results/
+plots/
+outputs/
