@@ -1,8 +1,9 @@
-# Python cache files
+
+*
+!*/
+!scripts/**
+!.gitignore
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Output files
-output/
 *.csv
