@@ -137,8 +137,3 @@ def axle_peaks(sig: np.ndarray, v_kmh: float,
         distance=max(2, int(round(DET["separation_fraction"] * min_axle_separation(v_kmh)))),
     )
     return idx + i0
-
-
-def axle_count_plausible(n: int) -> bool:
-    """Sanity bracket on axles per record. Not a safety check — a sanity check."""
-    return DET["min_axles_for_passage"] <= n <= DET["max_axles_for_passage"]

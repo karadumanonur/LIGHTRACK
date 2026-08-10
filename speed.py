@@ -98,32 +98,6 @@ def _windowed_heads(y: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray
     return a[sl], b[sl], c[sl]
 
 
-def refine_lags(y: pd.DataFrame, spd: "SpeedResult",
-                frac: float = 0.25) -> tuple[int, int]:
-    """Re-measure both inter-head lags FREELY, near the constrained solution.
-
-    `estimate` forces lag_bc / lag_ab = 15/10 by construction, so it can never
-    reveal that the true head spacing differs from nominal. This searches each
-    lag independently within +/-`frac` of its predicted value: wide enough to
-    move off the imposed ratio, narrow enough that the carriage-length alias
-    (which broke the free estimator in Phase 0) stays out of range.
-
-    The ratio of the two refined lags is a direct measurement of the head
-    spacing ratio, independent of speed.
-    """
-    a, b, c = _windowed_heads(y)
-    out = []
-    for x, z, pred in ((a, b, spd.lag_ab), (b, c, spd.lag_bc)):
-        if pred == 0:
-            out.append(0)
-            continue
-        lo, hi = sorted((int(pred * (1 - frac)), int(pred * (1 + frac))))
-        cand = range(lo, hi + 1)
-        best = max(cand, key=lambda L: _xcorr_at(x, z, L))
-        out.append(int(best))
-    return out[0], out[1]
-
-
 def xcorr_curve(a: np.ndarray, b: np.ndarray, max_lag: int) -> np.ndarray:
     """Normalised cross-correlation at every lag in [-max_lag, +max_lag].
 

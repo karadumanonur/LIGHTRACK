@@ -36,6 +36,13 @@ _FNAME_RE = re.compile(
 N_CHANNELS = 12
 TIME_COL = "time_s"
 CH_COLS = [f"ch{i:02d}" for i in range(1, N_CHANNELS + 1)]
+
+# Channel <-> PAD mapping. The interrogator names its channels by wavelength
+# slot; the installation drawing names the sensors by pad. The two run in
+# opposite directions, so every result reported against a pad has to come
+# through here. Read from config, never hard-coded.
+PAD_OF_CHANNEL = dict(zip(CH_COLS, CONFIG["channel_to_pad"]["pad_of_channel"]))
+CH_OF_PAD = {pad: ch for ch, pad in PAD_OF_CHANNEL.items()}
 COLUMNS = [TIME_COL] + CH_COLS
 
 
@@ -161,12 +168,6 @@ def load_file(path: str | Path) -> pd.DataFrame:
     return df
 
 
-def load_raw_array(path: str | Path) -> tuple[np.ndarray, np.ndarray]:
-    """Lightweight variant: (time_s, wavelengths_nm[n, 12]) as float64."""
-    df = load_file(path)
-    return df[TIME_COL].to_numpy(), df[CH_COLS].to_numpy()
-
-
 @dataclass
 class FileMeta:
     """One row of the file index. Pure facts read off disk — no inference."""
@@ -246,16 +247,3 @@ def list_files(data_dir: str | Path | None = None) -> list[Path]:
     d = Path(data_dir or CONFIG["paths"]["glob"] and CONFIG["paths"]["data_dir"])
     return sorted((p for p in d.glob(CONFIG["paths"]["glob"])
                    if _FNAME_RE.match(p.name)), key=lambda p: p.name)
-
-
-def build_index(data_dir: str | Path | None = None,
-                progress: bool = False) -> pd.DataFrame:
-    """Scan every file and return the index as a DataFrame. Reads all bytes."""
-    rows = []
-    files = list_files(data_dir)
-    for i, p in enumerate(files, 1):
-        meta, _ = scan_file(p)
-        rows.append(meta.as_dict())
-        if progress:
-            print(f"  [{i:3d}/{len(files)}] {p.name}", flush=True)
-    return pd.DataFrame(rows)

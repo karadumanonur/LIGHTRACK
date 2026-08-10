@@ -90,11 +90,3 @@ def find_stationary(sig_slow: np.ndarray, v_kmh: float | None = None
         out.append(StationaryEvent(a, b, (b - a) / FS, float(np.mean(seg)),
                                    float(density)))
     return out
-
-
-def stationary_mask(events: list[StationaryEvent], n: int) -> np.ndarray:
-    """Boolean mask over the record where counting must ABSTAIN."""
-    m = np.zeros(n, dtype=bool)
-    for e in events:
-        m[e.start:e.end] = True
-    return m
