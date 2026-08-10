@@ -1,4 +1,4 @@
-# LIGHTRACK — FBG axle counting on line 130
+# LIGHTRACK — FBG axle counting
 
 This repository holds my Python code for the LIGHTRACK project, an internship
 at UMONS for B-sens. Twelve fibre Bragg gratings are bonded to the rail between
