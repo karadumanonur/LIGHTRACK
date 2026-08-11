@@ -1,0 +1,7 @@
+matplotlib
+numpy
+openpyxl
+pandas
+scipy
+tzdata
+vmdpy
