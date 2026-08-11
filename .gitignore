@@ -11,6 +11,7 @@ venv/
 *.jpeg
 *.html
 *.txt
+!requirements.txt
 results/
 plots/
 outputs/
