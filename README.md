@@ -1,4 +1,4 @@
-# LIGHTRACK — a live FBG axle counter
+# LIGHTRACK — a live FBG axle counter & speed detection
 
 This repository holds the real-time counter from the LIGHTRACK project, an
 internship at UMONS for B-sens. Twelve fibre Bragg gratings are bonded to the
@@ -61,20 +61,6 @@ half an hour.
 thing only: the two sensors on the same head returned different numbers, so
 PAD 4 did not confirm what PAD 1 counted. The reported count is still PAD 1's.
 
-A disagreement is worth printing because it is the only quality signal available
-where there is no reference to check against — which is everywhere outside the
-44 passages that could be matched to Infrabel's own axle counter.
-
-On the 93-record campaign, 85 trains were confirmed and 8 were not. Five of the
-eight were freight consists over 50 axles, where axle loads vary several fold
-and the two sensors drop a different set of the light ones; the other three were
-short or edge-clipped consists. All three counts that were genuinely wrong
-against the Infrabel reference are inside those eight, so the flag does find the
-real errors — but it also flags five trains that may well have been counted
-correctly. It marks doubt, not failure.
-
-With `--partner 0` no second sensor is read and the column is simply empty.
-
 ## Using it on a live feed
 
 The counter consumes blocks and keeps its state between them, so a file and a
@@ -132,31 +118,6 @@ will judge all follow from it.
 Latency from the first axle to its confirmation is about 245 ms at the median,
 which includes the filter delay and waiting for the peak to come back down.
 
-## How well it counts
-
-Measured against Infrabel's own axle counter at Le Campinaire, on the 44 POC1
-passages that could be matched to it on time alone — the matcher never reads a
-count, which would make the figure circular.
-
-| output | exact |
-|---|---|
-| PAD 1 alone | 41/44 = 93.2 % |
-| head 1 median vote, four sensors | 39/44 = 88.6 % |
-
-Every remaining error is a freight consist over 100 axles, where the axle loads
-vary several fold and the sensors disagree with each other by 40 axles or more.
-The head reports that disagreement rather than a number.
-
-## What this is not
-
-It is not a safety product and carries no SIL claim; that would need failure
-counts three orders of magnitude larger than anything measured here. The head
-spacings of 15 m and 10 m are imposed by the geometry, and a comparison against
-station-to-station timings suggests the sensor reads about 5 % low, which
-applies to every distance derived from speed times time.
-
-The offline analysis pipeline that produced the validation above is kept
-separately and is not part of this repository.
 
 ## Installation
 
