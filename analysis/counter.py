@@ -277,24 +277,7 @@ class Passage:
 def compare_heads(a: StreamingCounter, b: StreamingCounter,
                   separation_m: float, head_a: int = 1, head_b: int = 2
                   ) -> Passage | None:
-    """Direction and speed from two heads that watched the same train.
-
-    The two heads sit a fixed distance apart on the same track, so the one that
-    saw the first axle EARLIER is the one the train reached first. That single
-    comparison is the direction — no model, no assumption about the stock, and
-    nothing that a degraded sensor can bias, because it uses the time of an
-    event rather than its amplitude.
-
-    The same lag divides into the separation to give the speed. This is the
-    measured time-of-flight value the counter wants for its filter, and it is
-    the one to feed back through `set_speed`: the wheelbase estimate that starts
-    a train off inherits an assumed axle spacing, while this inherits only the
-    distance between two heads, which is surveyed.
-
-    Returns None when either head saw nothing, or when the lag is too small to
-    be a real transit — at 200 km/h a 15 m separation is still 0.27 s, so a lag
-    under a tenth of that is noise, not a train.
-    """
+                   
     if not (a.first_axle_index and b.first_axle_index):
         return None
     lag = (b.first_axle_index - a.first_axle_index) / FS
