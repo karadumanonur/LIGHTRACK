@@ -68,9 +68,12 @@ def main() -> None:
 
         print(f"{path.name}")
         for i, t in enumerate(trains):
-            confirmed = (i < len(partner_trains)
-                         and partner_trains[i].axles == t.axles)
-            mark = "confirmed" if confirmed else "UNCONFIRMED"
+            if partner is None:
+                mark = ""
+            elif i < len(partner_trains) and partner_trains[i].axles == t.axles:
+                mark = f"confirmed by PAD {args.partner}"
+            else:
+                mark = f"PAD {args.partner} disagrees"
             line = (f"   t={t.first_index / FS:7.1f} s  {t.axles:4d} axles"
                     f"   X {t.n_x} / D {t.n_d}"
                     f"   {t.speed_kmh:5.0f} km/h   {mark}")

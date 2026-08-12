@@ -17,7 +17,7 @@ python -m analysis record.txt
 
 ```
 record.txt
-   t=   65.3 s    12 axles   X 12 / D 12      86 km/h   confirmed   head 1 first
+   t=   65.3 s    12 axles   X 12 / D 12      86 km/h   confirmed by PAD 4   head 1 first
 
 1 train(s) in 1 file(s)
 ```
@@ -25,6 +25,55 @@ record.txt
 One line per train: when it arrived, how many axles, what each of the two
 counting chains said, the speed, whether a second sensor on the same head
 confirmed the count, and which head the train reached first.
+
+A whole folder, or a wildcard, works the same way. Quote the wildcard —
+PowerShell passes it through unexpanded, so the expansion is done here:
+
+```powershell
+python -m analysis recordings
+python -m analysis "recordings\2026051*.txt"
+```
+
+```
+93 train(s) in 93 file(s)
+```
+
+Which sensors to use:
+
+```powershell
+python -m analysis recordings --pad 1 --partner 4 --direction-pad 5
+```
+
+Those are the defaults. PAD 1 does the counting, PAD 4 sits on the same head and
+confirms it, PAD 5 sits on the next head and gives the direction. Reading one
+sensor instead of three is three times faster:
+
+```powershell
+python -m analysis recordings --partner 0 --direction-pad 0
+```
+
+Expect roughly 3.5 s per record with all three, so a folder of 600 takes about
+half an hour.
+
+## What "PAD 4 disagrees" means
+
+**It is not an error, and it does not mean the count is wrong.** It means one
+thing only: the two sensors on the same head returned different numbers, so
+PAD 4 did not confirm what PAD 1 counted. The reported count is still PAD 1's.
+
+A disagreement is worth printing because it is the only quality signal available
+where there is no reference to check against — which is everywhere outside the
+44 passages that could be matched to Infrabel's own axle counter.
+
+On the 93-record campaign, 85 trains were confirmed and 8 were not. Five of the
+eight were freight consists over 50 axles, where axle loads vary several fold
+and the two sensors drop a different set of the light ones; the other three were
+short or edge-clipped consists. All three counts that were genuinely wrong
+against the Infrabel reference are inside those eight, so the flag does find the
+real errors — but it also flags five trains that may well have been counted
+correctly. It marks doubt, not failure.
+
+With `--partner 0` no second sensor is read and the column is simply empty.
 
 ## Using it on a live feed
 
