@@ -80,7 +80,7 @@ def main() -> None:
             total += 1
         if not trains:
             print("   no train")
-    print(f"\n{total} train(s) in {len(args.files)} file(s)")
+    print(f"\n{total} train(s) in {len(files)} file(s)")
 
 
 if __name__ == "__main__":
