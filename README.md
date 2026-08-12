@@ -9,25 +9,47 @@ wavelength, and the interrogator streams all twelve channels at 500 Hz.
 The counter reads that stream a block at a time and reports axles as they pass.
 It never looks ahead: every threshold it uses comes from samples already gone by.
 
-## Using it
+## Running it
 
-```python
-from realtime import StreamingCounter
-
-c = StreamingCounter()
-for block in feed:                  # blocks of raw wavelength, in nm
-    for axle in c.push(block):
-        print(axle.index, axle.height_pm)
-
-c.count, c.n_x, c.n_d, c.agree, c.speed_kmh
+```powershell
+python -m analysis record.txt
 ```
 
-Four files, no dependencies beyond numpy and scipy:
+```
+record.txt
+   t=   65.3 s    12 axles   X 12 / D 12      86 km/h   confirmed   head 1 first
 
-- `realtime/counter.py` — the counter
-- `realtime/config.py` — reads the parameters
-- `realtime/config.toml` — the parameters, all 24 of them
-- `realtime/__init__.py` — the package surface
+1 train(s) in 1 file(s)
+```
+
+One line per train: when it arrived, how many axles, what each of the two
+counting chains said, the speed, whether a second sensor on the same head
+confirmed the count, and which head the train reached first.
+
+## Using it on a live feed
+
+The counter consumes blocks and keeps its state between them, so a file and a
+live feed look the same to it. Replace the reader with whatever the interrogator
+provides:
+
+```python
+from analysis import StreamingCounter
+
+c = StreamingCounter()
+for block in feed:
+    c.push(block)
+    for train in c.pop_trains():
+        print(train.axles, train.speed_kmh, train.agree)
+```
+
+A train is closed once the line has been quiet for three seconds; `pop_trains`
+returns the ones finished since the last call, and `flush` closes the one still
+in progress.
+
+- `analysis/counter.py` — the counter
+- `analysis/reader.py` — reads a record from disk into blocks
+- `analysis/__main__.py` — the command line above
+- `analysis/config.py`, `analysis/config.toml` — the parameters
 
 ## What it does to the signal
 

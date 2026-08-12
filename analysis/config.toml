@@ -38,6 +38,9 @@ d_min_points = 6
 # the same floor, expressed per peak width
 d_points_per_peak_fraction = 0.2
 
+[channel_to_pad]
+pad_of_channel = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
+
 [realtime]
 block_samples = 50
 fir_taps = 31

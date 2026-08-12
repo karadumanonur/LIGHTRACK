@@ -35,6 +35,18 @@ class Axle:
 
 
 @dataclass
+class Train:
+    """One train, closed when the line has been quiet long enough."""
+    axles: int
+    n_x: int
+    n_d: int
+    agree: bool
+    speed_kmh: float
+    first_index: int
+    last_index: int
+
+
+@dataclass
 class StreamingCounter:
 
     v0_kmh: float = RT["initial_speed_kmh"]
@@ -60,6 +72,8 @@ class StreamingCounter:
     _d_seg: list = field(default_factory=list, repr=False)
     _d_idx: list = field(default_factory=list, repr=False)
     _first_axle: int | None = None
+    _last_axle: int | None = None
+    _done: list = field(default_factory=list, repr=False)
     _d_start: int = 0
     _in_train_until: int = -1
     _levels_seen: deque = field(default_factory=lambda: deque(maxlen=20), repr=False)
@@ -132,9 +146,27 @@ class StreamingCounter:
         if len(self._peaks) >= 3:
             self._levels_seen.append(
                 float(np.percentile(self._peaks, SAF["x_peak_percentile"])))
+        if self._first_axle is not None:
+            self._done.append(Train(
+                axles=self.count, n_x=self._n_x, n_d=self._n_d, agree=self.agree,
+                speed_kmh=self._v, first_index=self._first_axle,
+                last_index=self._last_axle))
         self._gaps.clear()
         self._peaks.clear()
+        self._d_idx.clear()
         self._peak_max = 0.0
+        self._n_x = self._n_d = 0
+        self._first_axle = self._last_axle = None
+
+    def pop_trains(self) -> list[Train]:
+        """Trains finished since the last call."""
+        out, self._done = self._done, []
+        return out
+
+    def flush(self) -> list[Train]:
+        """Close the train still in progress, if any, and return everything."""
+        self._new_train()
+        return self.pop_trains()
 
     def _update_speed(self) -> None:
 
@@ -236,23 +268,26 @@ class StreamingCounter:
                     if v < thr_fall:
                         if (i - self._i_rise) >= t_min:
 
+                            gap = (self._run_max_i - self._last_peak_i
+                                   if self._last_peak_i is not None else None)
+                            if gap is not None and not (
+                                    0 < gap < RT["max_axle_gap_s"] * FS):
+                                self._new_train()
+                                gap = None
+
                             out.append(Axle(self._run_max_i, self._run_max))
                             self._n_x += 1
                             if self._first_axle is None:
                                 self._first_axle = self._run_max_i
+                            self._last_axle = self._run_max_i
 
                             if self._run_max >= (SAF["x_peak_floor_fraction"]
                                                  * self._peak_max):
                                 self._peaks.append(self._run_max)
                             self._peak_max = max(self._peak_max, self._run_max)
-                            if self._last_peak_i is not None:
-                                g = self._run_max_i - self._last_peak_i
-
-                                if 0 < g < RT["max_axle_gap_s"] * FS:
-                                    self._gaps.append(g)
-                                    self._update_speed()
-                                else:
-                                    self._new_train()
+                            if gap is not None:
+                                self._gaps.append(gap)
+                                self._update_speed()
                             self._last_peak_i = self._run_max_i
                         self._armed = False
             self._n += len(chunk)
