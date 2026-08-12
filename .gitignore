@@ -1,20 +1,8 @@
 *
 !*/
 
-# the scripts
-!Scripts/**
-
-# the package the scripts import
-!__init__.py
-!config.py
-!config.toml
-!loader.py
-!baseline.py
-!speed.py
-!detect.py
-!diagnostic.py
-!safety.py
-!occupancy.py
+# the live counter — this is what the repository is
+!realtime/**
 
 !README.md
 !.gitignore

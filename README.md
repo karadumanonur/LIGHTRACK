@@ -1,98 +1,94 @@
-# LIGHTRACK — FBG axle counting
+# LIGHTRACK — a live FBG axle counter
 
-This repository holds my Python code for the LIGHTRACK project, an internship
-at UMONS for B-sens. Twelve fibre Bragg gratings are bonded to the rail between
-Aiseau and Farciennes, in three heads set 15 m and 10 m apart. Every axle that
-rolls over them strains the rail and shifts the Bragg wavelength, and the
-interrogator records all twelve channels at 500 Hz.
+This repository holds the real-time counter from the LIGHTRACK project, an
+internship at UMONS for B-sens. Twelve fibre Bragg gratings are bonded to the
+rail on line 130 between Aiseau and Farciennes, in three heads set 15 m and 10 m
+apart. Every axle that rolls over them strains the rail and shifts the Bragg
+wavelength, and the interrogator streams all twelve channels at 500 Hz.
 
-Starting from those raw recordings, the code answers three questions:
+The counter reads that stream a block at a time and reports axles as they pass.
+It never looks ahead: every threshold it uses comes from samples already gone by.
 
-- how many axles went past;
-- which way the train was travelling;
-- how fast it was going.
+## Using it
 
-It then checks all three against Infrabel's own records, because a number that
-has never been compared to anything is not a measurement.
+```python
+from realtime import StreamingCounter
 
-## Scripts
+c = StreamingCounter()
+for block in feed:                  # blocks of raw wavelength, in nm
+    for axle in c.push(block):
+        print(axle.index, axle.height_pm)
 
-Run them in numeric order — each one writes CSV files that the next one reads.
+c.count, c.n_x, c.n_d, c.agree, c.speed_kmh
+```
 
-- `10_records.py` — inventory of the delivered files; cadence and retention.
-- `20_heads.py` — groups the twelve channels into the three heads, then proves
-  the grouping with geometry.
-- `30_speed_direction.py` — speed and direction from a geometry-constrained
-  time of flight, plus the fit-score gate.
-- `40_axles.py` — axle counting by X-crossing and D-crossing, the safety chain.
-- `50_passages.py` — extracts each passage and runs the occupancy balance.
-- `60_speed_crosscheck.py` — what the gate excluded, and time-of-flight speed
-  against bogie-wheelbase speed.
-- `70_reference_tables.py` — builds the reference tables from the Infrabel data.
-- `80_validate.py` — axles, direction and speed against those references.
+Four files, no dependencies beyond numpy and scipy:
 
-## Data
+- `realtime/counter.py` — the counter
+- `realtime/config.py` — reads the parameters
+- `realtime/config.toml` — the parameters, all 24 of them
+- `realtime/__init__.py` — the package surface
 
-Recordings are whitespace-separated text files: one time column, twelve
-wavelength columns, 500 Hz, about 144 s each. Recording is contiguous, so a file
-that is missing was discarded rather than never made — which means the discarded
-ones can be counted instead of guessed at.
+## What it does to the signal
 
-Two Infrabel sources are used for validation:
+Each stage is derived from something measured, not chosen by hand. The width of
+one axle peak sets almost everything: an axle loads about 2.2 m of track, so at
+a given speed its peak lasts `2.2 / (v/3.6)` seconds, and the filter cutoff, the
+minimum time a peak must hold, and the shortest segment the derivative chain
+will judge all follow from it.
 
-- the ACAT axle-counter log at Le Campinaire (section 06 / CAT_KJ);
-- the punctuality feed, which timestamps each train at Aiseau and Farciennes.
+1. **Baseline** — subtract a trailing 1 s median. Thermal drift moves in
+   minutes, so a lagging estimate costs nothing, and the window is nine times
+   longer than an axle peak, so the median steps over the train.
+2. **Filter** — a 31-tap linear-phase FIR at a speed-adaptive cutoff. Its group
+   delay is constant and identical on every channel, so the count is unaffected
+   and the head-to-head lag that gives speed survives intact.
+3. **Speed** — from the bogie wheelbase at the first head, available about
+   0.2 s into a train. It is only as good as the assumed wheelbase, so it exists
+   to get a filter running; `set_speed()` takes the time-of-flight value when it
+   arrives about a second later.
+4. **Threshold** — a running percentile of the peaks already seen. Before any
+   peak exists it falls back to the excursion that separates a train from an
+   empty record.
+5. **Counting** — two independent chains. X-crossing arms above one threshold
+   and confirms below another; D-crossing enters lower and tests the shape of
+   the peak instead of its height. When they agree, that is the count. When they
+   do not, the disagreement is the output — a counting head that cannot decide
+   should say so rather than emit a number that might be a phantom axle.
 
-Raw recordings, Infrabel data files and result folders are intentionally not
-included here.
+## What it costs
 
-## Results
+Latency from the first axle to its confirmation is about 245 ms at the median,
+which includes the filter delay and waiting for the peak to come back down.
 
-From the POC1 campaign — 93 records, 14 May to 2 June 2026.
+## How well it counts
 
-**Axles.** Each passage is matched to the axle counter on time alone; the
-matcher never looks at a count, since 72 % of trains carry 12 or 24 axles and a
-count-aware matcher would mostly succeed by construction. On the 44 passages
-that matched:
+Measured against Infrabel's own axle counter at Le Campinaire, on the 44 POC1
+passages that could be matched to it on time alone — the matcher never reads a
+count, which would make the figure circular.
 
-| output | exact | rate | 95 % CI |
-|---|---|---|---|
-| head 1 median vote | 40/44 | 90.9 % | 78.3–97.5 % |
-| head 2 median vote | 40/44 | 90.9 % | 78.3–97.5 % |
-| diagnostic chain | 43/44 | 97.7 % | 88.0–99.9 % |
+| output | exact |
+|---|---|
+| PAD 1 alone | 41/44 = 93.2 % |
+| head 1 median vote, four sensors | 39/44 = 88.6 % |
 
-Every error sits in a freight consist of more than 32 axles. Below that, both
-heads agree with the counter on all 40 passages.
+Every remaining error is a freight consist over 100 axles, where the axle loads
+vary several fold and the sensors disagree with each other by 40 axles or more.
+The head reports that disagreement rather than a number.
 
-**Direction.** Taken from the order of the two station timestamps, never from
-the relation label: 51 of 56 passages are consistent with a single mapping
-(91.1 %).
+## What this is not
 
-**Speed.** Compared against the station-to-station leg average. That average
-covers 2.726 km bracketed by two stops, so it is a lower bound on the speed at
-the sensor rather than a target to hit. The ratio comes out at 1.03 overall, and
-0.95 on the fastest quartile — the trains least affected by a station stop. So
-the sensor reads about 5 % low, and since every distance in the project is speed
-times time, the same 5 % rides along with all of them. Fastest train seen:
-141 km/h.
+It is not a safety product and carries no SIL claim; that would need failure
+counts three orders of magnitude larger than anything measured here. The head
+spacings of 15 m and 10 m are imposed by the geometry, and a comparison against
+station-to-station timings suggests the sensor reads about 5 % low, which
+applies to every distance derived from speed times time.
 
-## What this does not show
-
-- The ACAT reference runs from 13 May to 24 June 2026 and does not reach July.
-- ACAT is incomplete in its own right — 28 of 76 passages have no partner in
-  it — so it cannot settle whether a detection was missed, in either direction.
-- The punctuality feed only sees passenger services that call at these stops.
-  Freight and non-stopping trains are invisible to it.
-- The 15 m and 10 m head spacings are imposed by the solver. Their ratio is
-  tested by the fit; their absolute scale is not, which is exactly what the
-  speed comparison above is poking at.
-- Head-to-head agreement measures internal consistency, not accuracy. No SIL4
-  claim is made or implied.
+The offline analysis pipeline that produced the validation above is kept
+separately and is not part of this repository.
 
 ## Installation
 
 ```powershell
-python -m pip install numpy pandas scipy matplotlib openpyxl
+python -m pip install numpy scipy
 ```
-
-Point `[paths]` in `config.toml` at your data directory before running anything.
