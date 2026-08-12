@@ -2,7 +2,7 @@
 !*/
 
 # the live counter — this is what the repository is
-!realtime/**
+!analysis/**
 
 !README.md
 !.gitignore
