@@ -53,3 +53,5 @@ max_speed_kmh = 200.0
 wheelbase_m = 2.84
 d_noise_sigmas = 8.0
 max_axle_gap_s = 3.0
+min_axles = 3
+edge_grace_s = 1.5

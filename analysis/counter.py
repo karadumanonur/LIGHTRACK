@@ -60,7 +60,6 @@ class StreamingCounter:
     _peaks: deque = field(default_factory=lambda: deque(maxlen=16), repr=False)
     _noise: deque = field(default_factory=lambda: deque(maxlen=40), repr=False)
     _gaps: deque = field(default_factory=lambda: deque(maxlen=32), repr=False)
-    _peak_max: float = 0.0
     _last_peak_i: int | None = None
     _armed: bool = False
     _i_rise: int = 0
@@ -142,11 +141,24 @@ class StreamingCounter:
         return self._n_x if self._n_x == self._n_d else max(self._n_x, self._n_d)
 
     def _new_train(self) -> None:
+        """Close the current train and keep it if it was really a train.
+
+        One or two peaks with no companion is not a train: no bogie, no wagon.
+        A live counter never sees a train cut in half, so it can say that
+        outright. Reading a delivery as separate files does cut trains in half,
+        and half a train is short through no fault of its own — so the rule is
+        held back for one whose first axle sits at the very start of the data
+        or whose last axle is still running when the data ends.
+        """
 
         if len(self._peaks) >= 3:
             self._levels_seen.append(
                 float(np.percentile(self._peaks, SAF["x_peak_percentile"])))
-        if self._first_axle is not None:
+        grace = RT["edge_grace_s"] * FS
+        clipped = self._first_axle is not None and (
+            self._first_axle < grace or (self._n - self._last_axle) < grace)
+        if self._first_axle is not None and (clipped
+                                             or self.count >= RT["min_axles"]):
             self._done.append(Train(
                 axles=self.count, n_x=self._n_x, n_d=self._n_d, agree=self.agree,
                 speed_kmh=self._v, first_index=self._first_axle,
@@ -154,7 +166,6 @@ class StreamingCounter:
         self._gaps.clear()
         self._peaks.clear()
         self._d_idx.clear()
-        self._peak_max = 0.0
         self._n_x = self._n_d = 0
         self._first_axle = self._last_axle = None
 
@@ -163,8 +174,36 @@ class StreamingCounter:
         out, self._done = self._done, []
         return out
 
+    def _close_pending(self) -> None:
+        """The axle that armed but never fell back before the data ran out.
+
+        A train crossing the boundary between two recordings leaves one axle
+        armed at the end of the first: it crested inside this record, but the
+        samples that would have carried it back under the confirm threshold
+        belong to the next one, so the hysteresis never closes and the axle is
+        dropped without a sound. The next record does not save it either — it
+        opens on the falling side, which never arms.
+
+        It is only counted here if it has already passed its maximum. That is
+        what says the next record sees a tail rather than a rise, and so will
+        not count the same axle a second time.
+        """
+        if not self._armed or self._first_axle is None:
+            return
+        t_min = SAF["x_min_duration_fraction"] * samples_per_peak(self._v)
+        if (self._n - self._i_rise) < t_min:
+            return
+        if self._n - self._run_max_i < 2:
+            return
+        self._n_x += 1
+        self._n_d += 1
+        self._last_axle = self._run_max_i
+        self._observe(self._run_max)
+        self._armed = False
+
     def flush(self) -> list[Train]:
         """Close the train still in progress, if any, and return everything."""
+        self._close_pending()
         self._new_train()
         return self.pop_trains()
 
@@ -208,6 +247,24 @@ class StreamingCounter:
             return SAF["peak_rise_fraction"] * float(np.median(self._levels_seen))
         return float(CONFIG["detect"]["absolute_gate_pm"])
 
+    def _observe(self, amplitude: float) -> None:
+        """Let an axle inform the level, whichever chain confirmed it.
+
+        The level is a percentile of recent peaks, so what is kept here
+        decides where the thresholds sit next. Keeping only the peaks that
+        ARMED closes a loop: a locomotive sets a level its own wagons cannot
+        reach, so nothing further arms, so nothing further can lower it, and
+        the rest of the train is lost. The derivative chain still sees those
+        wagons at its lower cut, so it is allowed to speak here even though it
+        is not what counts.
+
+        The floor is measured against the recent peaks rather than the largest
+        seen so far, because a running maximum only ever ratchets upward.
+        """
+        recent = max(self._peaks) if self._peaks else amplitude
+        if amplitude >= SAF["x_peak_floor_fraction"] * recent:
+            self._peaks.append(amplitude)
+
     def _close_d_segment(self, need: int) -> None:
 
         seg = np.asarray(self._d_seg, dtype=float)
@@ -220,6 +277,7 @@ class StreamingCounter:
                 and np.count_nonzero(d[kmax:] < 0) >= 2):
             self._n_d += 1
             self._d_idx.append(self._d_start + kmax)
+            self._observe(float(seg[kmax]))
 
     # ------------------------------------------------------------------ API
     def push(self, raw_nm: np.ndarray) -> list[Axle]:
@@ -281,10 +339,7 @@ class StreamingCounter:
                                 self._first_axle = self._run_max_i
                             self._last_axle = self._run_max_i
 
-                            if self._run_max >= (SAF["x_peak_floor_fraction"]
-                                                 * self._peak_max):
-                                self._peaks.append(self._run_max)
-                            self._peak_max = max(self._peak_max, self._run_max)
+                            self._observe(self._run_max)
                             if gap is not None:
                                 self._gaps.append(gap)
                                 self._update_speed()
