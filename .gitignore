@@ -1,7 +1,12 @@
-# main carries nothing. The work lives on the branches:
+# main carries no analysis code. The work lives on the branches:
 #   Onur-Branch    the live counter, the analysis package
 #   Asude-Branch   the peak-algorithm and matching studies
-# Ignore everything so nothing lands here by accident.
+# main only holds the harness that runs both of them side by side.
 *
 !.gitignore
 !README.md
+!compare/
+!compare/**
+compare/**/__pycache__/
+compare/out/
+*.py[cod]
