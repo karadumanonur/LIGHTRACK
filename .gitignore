@@ -1,25 +1,7 @@
+# main carries nothing. The work lives on the branches:
+#   Onur-Branch    the live counter, the analysis package
+#   Asude-Branch   the peak-algorithm and matching studies
+# Ignore everything so nothing lands here by accident.
 *
-!*/
-
-# the scripts
-!Scripts/**
-
-# the package the scripts import
-!__init__.py
-!config.py
-!config.toml
-!loader.py
-!baseline.py
-!speed.py
-!detect.py
-!diagnostic.py
-!safety.py
-!occupancy.py
-
-!README.md
 !.gitignore
-
-__pycache__/
-*.py[cod]
-*$py.class
-*.csv
+!README.md
