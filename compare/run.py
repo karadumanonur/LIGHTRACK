@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -37,15 +38,26 @@ def worktree(name: str, branch: str) -> Path:
     path = SIDES / name
     if (path / ".git").exists():
         return path
+    # A half-removed worktree leaves either its registration or its checkout
+    # behind, and git then refuses to add the same path again. Both are ours
+    # and both are a checkout of a branch, so clearing them costs nothing.
+    subprocess.run(["git", "worktree", "prune"], cwd=ROOT, capture_output=True)
+    if path.exists():
+        print(f"   clearing a leftover checkout in {path.relative_to(ROOT)}")
+        shutil.rmtree(path, ignore_errors=True)
+        if path.exists():
+            sys.exit(f"{path} is in the way and could not be removed — a file "
+                     "in it is open somewhere. Close it and run again.")
     ref = f"origin/{branch}"
-    try:
-        subprocess.run(["git", "rev-parse", "--verify", "--quiet", ref],
-                       cwd=ROOT, check=True, capture_output=True)
-    except subprocess.CalledProcessError:
+    if subprocess.run(["git", "rev-parse", "--verify", "--quiet", ref],
+                      cwd=ROOT, capture_output=True).returncode:
         ref = branch
     print(f"   checking out {ref} into {path.relative_to(ROOT)}")
-    subprocess.run(["git", "worktree", "add", "--detach", str(path), ref],
-                   cwd=ROOT, check=True, capture_output=True)
+    done = subprocess.run(["git", "worktree", "add", "--detach", str(path), ref],
+                          cwd=ROOT, capture_output=True, text=True)
+    if done.returncode:
+        sys.exit(f"could not check out {ref}:\n{done.stderr.strip()}\n"
+                 "fetch the branches first: git fetch origin")
     return path
 
 
