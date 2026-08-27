@@ -1,12 +1,32 @@
-# main carries no analysis code. The work lives on the branches:
-#   Onur-Branch    the live counter, the analysis package
-#   Asude-Branch   the peak-algorithm and matching studies
-# main only holds the harness that runs both of them side by side.
+# Everything is excluded and then named back in one file at a time, so a
+# delivery folder dropped beside the code can never be committed by accident.
+# Railway records are not ours to publish.
 *
+
 !.gitignore
 !README.md
+!requirements.txt
+!*.py
+!config.toml
+
+!analysis/
+!analysis/*.py
+!analysis/config.toml
+
+!app/
+!app/*.py
+!app/static/
+!app/static/*
+
+!packaging/
+!packaging/*.py
+!packaging/*.spec
+!packaging/*.txt
+
 !compare/
 !compare/**
 compare/**/__pycache__/
 compare/out/
+
 *.py[cod]
+__pycache__/

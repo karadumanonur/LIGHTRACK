@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LIGHTRACK</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="word">LIGHTRACK</div>
+    <div class="where">L130 Aiseau &mdash; Farciennes</div>
+  </div>
+  <div class="tools">
+    <div class="busy" id="busy"></div>
+    <div class="label">counting engine</div>
+    <div class="seg" id="engines"></div>
+  </div>
+</header>
+
+<main>
+  <aside>
+    <div class="railtop">
+      <button class="pick" id="pick">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        Select folder
+      </button>
+      <div class="search">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#989285" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
+        <input id="q" type="text" placeholder="filter by date, axles or speed" spellcheck="false">
+      </div>
+      <div class="chips" id="folders"></div>
+    </div>
+    <div class="rows" id="rows"></div>
+    <div class="railfoot" id="railfoot">&nbsp;</div>
+  </aside>
+
+  <section id="work">
+    <div class="card head">
+      <div class="ident">
+        <div class="when" id="when">&nbsp;</div>
+        <div class="mono small" id="ident">&nbsp;</div>
+      </div>
+      <div class="stats" id="stats"></div>
+      <div class="padbox">
+        <div class="label">sensors &mdash; click to add or remove</div>
+        <div class="pads" id="pads"></div>
+      </div>
+    </div>
+
+    <div class="card" data-panel="raw">
+      <div class="ph">
+        <div class="pt">Raw signal, baseline kept</div>
+        <div class="phr">
+          <div class="legend" data-legend="raw"></div>
+          <div class="mono small" id="raw-note"></div>
+          <div class="ctl" data-ctl="raw"></div>
+        </div>
+      </div>
+      <div class="plot">
+        <div class="yl">raw [nm]</div>
+        <div class="yc" data-yc="raw"></div>
+        <div class="stretch">
+          <svg class="sv" data-zoom="raw"><g data-el="raw-body"></g><rect data-el="raw-sel" class="sel" x="0" y="0" width="0" height="0"></rect></svg>
+          <div class="xr" data-xr="raw"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" data-panel="det">
+      <div class="ph">
+        <div class="pt">Axle count</div>
+        <div class="phr">
+          <div class="key" id="det-key"></div>
+          <div class="ctl" data-ctl="det"></div>
+        </div>
+      </div>
+      <div class="plot">
+        <div class="yl" id="det-units">filtered [pm]</div>
+        <div class="yc" data-yc="det"></div>
+        <div class="stretch">
+          <svg class="sv" data-zoom="det"><g data-el="det-body"></g><rect data-el="det-sel" class="sel" x="0" y="0" width="0" height="0"></rect></svg>
+          <div class="xr" data-xr="det"></div>
+          <div class="ax">time in the record [s]</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="trio">
+      <div class="card" data-panel="psd">
+        <div class="ph">
+          <div class="pt">Power spectral density</div>
+          <div class="phr"><div class="mono small" id="psd-note"></div><div class="ctl" data-ctl="psd"></div></div>
+        </div>
+        <div class="plot">
+          <div class="yl">pm&sup2;/Hz</div>
+          <div class="yc" data-yc="psd"></div>
+          <div class="stretch">
+            <svg class="sv" data-zoom="psd"><g data-el="psd-body"></g><rect data-el="psd-sel" class="sel" x="0" y="0" width="0" height="0"></rect></svg>
+            <div class="xr" data-xr="psd"></div>
+            <div class="ax">frequency [Hz]</div>
+          </div>
+        </div>
+      </div>
+      <div class="card" data-panel="fft">
+        <div class="ph">
+          <div class="pt">Fourier spectrum</div>
+          <div class="phr"><div class="mono small">Hann, whole record</div><div class="ctl" data-ctl="fft"></div></div>
+        </div>
+        <div class="plot">
+          <div class="yl">magnitude</div>
+          <div class="yc" data-yc="fft"></div>
+          <div class="stretch">
+            <svg class="sv" data-zoom="fft"><g data-el="fft-body"></g><rect data-el="fft-sel" class="sel" x="0" y="0" width="0" height="0"></rect></svg>
+            <div class="xr" data-xr="fft"></div>
+            <div class="ax">frequency [Hz]</div>
+          </div>
+        </div>
+      </div>
+      <div class="card" data-panel="emd">
+        <div class="ph">
+          <div class="pt">Empirical mode decomposition</div>
+          <div class="phr"><div class="mono small" id="emd-note"></div><div class="ctl" data-ctl="emd"></div></div>
+        </div>
+        <div class="plot">
+          <div class="yl">modes</div>
+          <div class="yc spread" data-yc="emdlab"></div>
+          <div class="stretch">
+            <svg class="sv" data-zoom="emd"><g data-el="emd-body"></g><rect data-el="emd-sel" class="sel" x="0" y="0" width="0" height="0"></rect></svg>
+            <div class="xr" data-xr="emd"></div>
+            <div class="ax">time in the record [s]</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" data-panel="camp">
+      <div class="ph">
+        <div class="pt" id="camp-title">SNR of every passage</div>
+        <div class="phr">
+          <div class="legend" data-legend="camp"></div>
+          <div class="read" id="camp-read"></div>
+          <div class="ctl" data-ctl="camp"></div>
+        </div>
+      </div>
+      <div class="plot">
+        <div class="yl">SNR &mdash; mean peak after baseline removal [pm]</div>
+        <div class="yc" data-yc="camp"></div>
+        <div class="stretch">
+          <svg class="sv" data-zoom="camp"><g data-el="camp-body"></g><rect data-el="camp-sel" class="sel" x="0" y="0" width="0" height="0"></rect></svg>
+          <div class="xr" data-xr="camp"></div>
+          <div class="ax" id="camp-foot"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="veil" id="veil">
+  <div class="dialog">
+    <div class="dh">
+      <div class="pt">Select a folder of records</div>
+      <button class="x" id="close">close</button>
+    </div>
+    <div class="crumbs"><button id="up">up one</button><div class="mono small" id="here"></div></div>
+    <div class="listing" id="listing"></div>
+    <div class="df">
+      <div class="mono small" id="dinfo"></div>
+      <button class="use" id="use">Take this folder in</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
