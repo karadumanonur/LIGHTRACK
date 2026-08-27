@@ -173,6 +173,9 @@ section.focused > .card.big { display: flex; flex: 1; min-height: 0; }
 .use:disabled { border-color: var(--line); color: #c4bfb4; cursor: not-allowed; }
 .crumbs { display: flex; align-items: center; gap: 10px; padding: 9px 15px; border-bottom: 1px solid var(--line); }
 .crumbs .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crumbs input#here { flex: 1; min-width: 0; border: 1px solid var(--line); background: var(--bg); border-radius: 2px; padding: 4px 8px; font-size: 11px; color: var(--ink); font-family: var(--mono); }
+.crumbs input#here:focus { outline: none; border-color: var(--mute); }
+.crumbs input#here::placeholder { color: var(--mute); }
 .listing { overflow-y: auto; flex: 1; }
 .entry { display: flex; align-items: center; gap: 9px; padding: 7px 15px; cursor: pointer; border-left: 2px solid transparent; }
 .entry:hover { background: var(--rail); }

@@ -1302,12 +1302,24 @@ function step(delta) {
 
 /* ------------------------------------------------------------------- folder */
 
+function tidyPath(v) {
+  return String(v || '').trim().replace(/^["']+|["']+$/g, '').trim();
+}
+
+let browseSeq = 0;
+
 async function openBrowse(path) {
+  const mine = ++browseSeq;
   const j = await api('/api/browse?path=' + encodeURIComponent(path || ''));
-  if (j.error && !j.entries) { return; }
+  if (mine !== browseSeq) { return; }
+  if (j.error && !(j.entries || []).length) {
+    $('#dinfo').textContent = j.error;
+    $('#use').disabled = true;
+    return;
+  }
   S.browse = j;
   S.pickPath = j.records > 0 ? j.path : null;
-  $('#here').textContent = j.path;
+  $('#here').value = j.path;
   const host = $('#listing');
   host.innerHTML = '';
   (j.entries || []).forEach((e) => {
@@ -1415,7 +1427,27 @@ async function boot(keep) {
       if (card) { setBig(card.dataset.panel); }
     };
   });
-  $('#pick').onclick = () => { $('#veil').classList.add('on'); openBrowse(''); };
+  $('#pick').onclick = () => {
+    $('#veil').classList.add('on');
+    openBrowse('');
+    setTimeout(() => { const h = $('#here'); h.focus(); h.select(); }, 30);
+  };
+  const goPath = () => {
+    const v = tidyPath($('#here').value);
+    if (v) { openBrowse(v); }
+  };
+  $('#go').onclick = goPath;
+  $('#here').addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') { ev.preventDefault(); goPath(); }
+  });
+  $('#here').addEventListener('focus', (ev) => ev.target.select());
+  $('#here').addEventListener('paste', (ev) => {
+    const t = (ev.clipboardData || window.clipboardData).getData('text');
+    if (!t) { return; }
+    ev.preventDefault();
+    ev.target.value = tidyPath(t);
+    goPath();
+  });
   $('#close').onclick = () => $('#veil').classList.remove('on');
   $('#veil').onclick = (ev) => { if (ev.target.id === 'veil') { $('#veil').classList.remove('on'); } };
   $('#up').onclick = () => { if (S.browse) { openBrowse(S.browse.parent); } };

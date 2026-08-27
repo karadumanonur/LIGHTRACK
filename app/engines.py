@@ -148,6 +148,8 @@ def _onur_trace(path: Path, pad: int) -> dict:
 
 def _asude_trace(path: Path, pad: int) -> dict:
     _path("asude")
+    import matplotlib                                           # noqa: E402
+    matplotlib.use("Agg")
     import sensor12_peak_tracker as tracker                     # noqa: E402
 
     time_s, raw_nm = tracker.load_fbg_file(path, pad)
