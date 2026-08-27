@@ -11,6 +11,10 @@ Python: double-click it and the browser opens on the window. A console window
 stays behind it saying where the program is listening; closing that window
 stops the program.
 
+This repository is private, so that link asks you to sign in and works only for
+people who have been given access to it. Anyone else has to be added to the
+repository first, or handed the file directly.
+
 Point it at a folder of `.txt` recordings with **Select folder** and it reads
 them in, counts them and measures all twelve sensors. Its store is a single
 `lightrack.db` file beside the program, so copying that folder carries the work
