@@ -21,6 +21,9 @@ length, since its failure mode is an import that never happens.
 from __future__ import annotations
 
 import json
+import os
+import signal
+import socket
 import subprocess
 import sys
 import time
@@ -48,9 +51,48 @@ def get(path: str, tries: int = 1):
     raise RuntimeError("unreachable")
 
 
+def port_open() -> bool:
+    with socket.socket() as s:
+        s.settimeout(1.0)
+        return s.connect_ex(("127.0.0.1", PORT)) == 0
+
+
+def stop(proc) -> bool:
+    """Put the program down, and wait until it has actually let go.
+
+    The one-file build runs a bootloader that starts the real program as a
+    child, so signalling the parent alone can leave the child holding the
+    bundle open. Packaging it while that is true fails with `Resource busy`,
+    which is a confusing way to be told the program is still running.
+    """
+    posix = os.name == "posix"
+    if not posix:
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                       capture_output=True)
+    try:
+        if posix:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+    try:
+        proc.wait(timeout=20)
+    except subprocess.TimeoutExpired:
+        try:
+            if posix:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+    for _ in range(30):
+        if not port_open():
+            return True
+        time.sleep(1)
+    return False
+
+
 def main() -> int:
     binary, folder = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve()
-    proc = subprocess.Popen([str(binary), "--no-browser", "--port", str(PORT)])
+    proc = subprocess.Popen([str(binary), "--no-browser", "--port", str(PORT)],
+                            start_new_session=(os.name == "posix"))
     checks: list[tuple[bool, str]] = []
     try:
         setup = get("/api/setup", tries=45)
@@ -92,11 +134,10 @@ def main() -> int:
         checks.append((raw.get("unit") == "pm" and len(raw.get("t", [])) > 10,
                        f"raw comes back in pm: {raw.get('unit')}, {len(raw.get('t', []))} points"))
     finally:
-        proc.terminate()
-        try:
-            proc.wait(timeout=20)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        released = stop(proc)
+    checks.append((released,
+                   "the program let go: " + ("yes" if released else
+                                             "no, it is still answering")))
 
     for good, line in checks:
         print(("  ok   " if good else "  FAIL ") + line)
