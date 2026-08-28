@@ -75,24 +75,16 @@ jobs:
         working-directory: lightrack
         run: codesign --force --deep --sign - dist/LIGHTRACK.app
 
-      - name: Check it starts
+      # A build that starts is not a build that works. This makes a record with
+      # axles we chose and asks the program to count them, checking the answer
+      # against what the same record gives on Windows. Two builds of the same
+      # code over the same bytes must agree.
+      - name: Count something
         working-directory: lightrack
         run: |
-          ./dist/LIGHTRACK.app/Contents/MacOS/LIGHTRACK --no-browser --port 8899 &
-          for i in $(seq 1 40); do
-            sleep 2
-            if curl -fs http://127.0.0.1:8899/api/setup > setup.json; then break; fi
-          done
-          cat setup.json
-          python - <<'PY'
-          import json
-          s = json.load(open("setup.json"))
-          names = {e["id"]: e["ready"] for e in s["engines"]}
-          assert names.get("onur"), "Onur's engine did not come up"
-          assert names.get("asude"), "Asude's engine did not come up"
-          assert len(s["pads"]) == 12, s["pads"]
-          print("both engines ready, twelve pads")
-          PY
+          python packaging/make_fake_record.py fake
+          python packaging/smoke_test.py             dist/LIGHTRACK.app/Contents/MacOS/LIGHTRACK fake
+
 
       - name: Make the disk image
         working-directory: lightrack
