@@ -7,9 +7,14 @@ work goes with it. Only when that folder cannot be written to — a program run
 from a read-only place — does the store fall back to the user's application
 data.
 
+On a Mac the program is a bundle, and a bundle is replaced wholesale when a
+new one is dragged over it — so the store cannot live inside it, and cannot
+live beside it either when that is `/Applications`. There it goes where the
+system keeps such things.
+
 Run from source none of this applies and every path is the repository, which is
-why the two cases are answered by the same three functions rather than by
-scattered tests for `sys.frozen`.
+why the cases are answered by the same few functions rather than by scattered
+tests for `sys.frozen`.
 """
 
 from __future__ import annotations
@@ -19,6 +24,8 @@ import sys
 from pathlib import Path
 
 FROZEN = bool(getattr(sys, "frozen", False))
+MAC_APP = (FROZEN and sys.platform == "darwin"
+           and ".app/Contents/MacOS" in str(Path(sys.executable).resolve()))
 
 
 def bundle() -> Path:
@@ -29,7 +36,13 @@ def bundle() -> Path:
 
 
 def beside() -> Path:
-    """The folder the program itself sits in."""
+    """The folder the program itself sits in.
+
+    For a Mac bundle that is the folder holding `LIGHTRACK.app`, not the
+    binary buried three levels inside it.
+    """
+    if MAC_APP:
+        return Path(sys.executable).resolve().parents[3]
     if FROZEN:
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parents[2]
@@ -37,6 +50,10 @@ def beside() -> Path:
 
 def store() -> Path:
     """Where the database goes."""
+    if MAC_APP:
+        d = Path.home() / "Library" / "Application Support" / "LIGHTRACK"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
     here = beside()
     if not FROZEN:
         return here

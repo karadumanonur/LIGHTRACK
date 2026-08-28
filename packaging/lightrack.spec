@@ -10,9 +10,14 @@ repository does.
 
 The checkout has to be called `lightrack`, because that is the name the code
 imports itself by.
+
+PyInstaller does not cross-compile: a Windows build has to run on Windows and a
+Mac bundle on a Mac. The same spec makes both — `.github/workflows/macos.yml`
+runs it on a Mac runner and wraps the result in a disk image.
 """
 
 import shutil
+import sys
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files
@@ -54,6 +59,8 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
+MAC = sys.platform == "darwin"
+
 exe = EXE(
     pyz, a.scripts, a.binaries, a.datas, [],
     name="LIGHTRACK",
@@ -69,3 +76,19 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
 )
+
+if MAC:
+    app = BUNDLE(
+        exe,
+        name="LIGHTRACK.app",
+        icon=None,
+        bundle_identifier="be.umons.lightrack",
+        info_plist={
+            "CFBundleName": "LIGHTRACK",
+            "CFBundleDisplayName": "LIGHTRACK",
+            "CFBundleShortVersionString": "1.2",
+            "CFBundleVersion": "1.2",
+            "NSHighResolutionCapable": True,
+            "LSMinimumSystemVersion": "11.0",
+        },
+    )

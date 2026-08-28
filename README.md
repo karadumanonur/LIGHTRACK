@@ -11,6 +11,21 @@ Python: double-click it and the browser opens on the window. A console window
 stays behind it saying where the program is listening; closing that window
 stops the program.
 
+On a Mac take `LIGHTRACK-apple-silicon.dmg`, or
+`LIGHTRACK-intel.dmg` on a Mac made before 2020. Open it and drag LIGHTRACK to
+Applications. The first time, **right-click the app and choose Open** rather
+than double-clicking it: the program is not signed by a registered Apple
+developer, and a plain double-click refuses it outright with no way forward.
+If macOS says it is damaged, that is the same thing said badly, and
+
+```bash
+xattr -dr com.apple.quarantine /Applications/LIGHTRACK.app
+```
+
+answers it. On a Mac the store goes to
+`~/Library/Application Support/LIGHTRACK`, so replacing the app leaves the work
+where it is.
+
 This repository is private, so that link asks you to sign in and works only for
 people who have been given access to it. Anyone else has to be added to the
 repository first, or handed the file directly.
@@ -135,6 +150,22 @@ python -m PyInstaller --noconfirm packaging/lightrack.spec
 the `analysis` package and Asude's tracker as SOURCE rather than as compiled
 modules, because the window shows the algorithm it ran and a byte-compiled copy
 has nothing to show.
+
+Asude's tracker is read from `.sides/asude`, which `python -m lightrack.compare`
+lays down from her branch. Build without it and you get a program with one
+engine and a switch that cannot be switched, so lay it down first.
+
+**The Mac program cannot be built on Windows.** PyInstaller does not
+cross-compile. `.github/workflows/macos.yml` runs the same spec on a Mac
+runner, wraps the bundle in a disk image and attaches it to a release; start it
+by hand from the Actions tab with the tag to attach to. On a Mac of your own it
+is the same three commands as above, and then
+
+```bash
+hdiutil create -volname LIGHTRACK -srcfolder staging -ov -format UDZO LIGHTRACK.dmg
+```
+
+with `dist/LIGHTRACK.app` and a symlink to `/Applications` inside `staging/`.
 
 ## Running the comparison
 

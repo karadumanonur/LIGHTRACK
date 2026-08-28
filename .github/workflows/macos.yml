@@ -1,0 +1,111 @@
+# PyInstaller does not cross-compile, so the Mac program cannot be built on the
+# Windows machine the rest of this is made on. It is built here instead.
+#
+# Run it by hand from the Actions tab, giving the release tag the disk image
+# should be attached to. Both architectures are built: Apple Silicon Macs
+# cannot run an Intel bundle without Rosetta, and Intel Macs cannot run an
+# Apple Silicon one at all.
+
+name: Mac disk image
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: the release tag to attach the disk image to
+        required: true
+        default: v1.2
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            arch: apple-silicon
+          - runner: macos-13
+            arch: intel
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
+    steps:
+      # The checkout has to be called `lightrack`: it is the name the code
+      # imports itself by.
+      - uses: actions/checkout@v4
+        with:
+          path: lightrack
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Asude's engine lives on her branch and is not vendored into main, so
+      # it is laid down here the same way `lightrack.compare` lays it down
+      # locally. Without this the disk image would ship with one engine while
+      # the Windows build ships with two.
+      - name: Lay down Asude's engine
+        working-directory: lightrack
+        run: |
+          mkdir -p .sides/asude
+          git show origin/Asude-Branch:sensor12_peak_tracker.py \
+            > .sides/asude/sensor12_peak_tracker.py
+          test -s .sides/asude/sensor12_peak_tracker.py
+
+      - name: Install what it needs
+        working-directory: lightrack
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt \
+                                -r packaging/requirements-build.txt
+
+      - name: Build
+        working-directory: lightrack
+        run: python -m PyInstaller --noconfirm packaging/lightrack.spec
+
+      # Unsigned bundles are refused outright on Apple Silicon rather than
+      # merely warned about. An ad-hoc signature is not a developer identity
+      # and does not get past quarantine on its own, but it does turn "damaged"
+      # back into the ordinary "unidentified developer" that a right-click and
+      # Open can answer.
+      - name: Sign it ad-hoc
+        working-directory: lightrack
+        run: codesign --force --deep --sign - dist/LIGHTRACK.app
+
+      - name: Check it starts
+        working-directory: lightrack
+        run: |
+          ./dist/LIGHTRACK.app/Contents/MacOS/LIGHTRACK --no-browser --port 8899 &
+          for i in $(seq 1 40); do
+            sleep 2
+            if curl -fs http://127.0.0.1:8899/api/setup > setup.json; then break; fi
+          done
+          cat setup.json
+          python - <<'PY'
+          import json
+          s = json.load(open("setup.json"))
+          names = {e["id"]: e["ready"] for e in s["engines"]}
+          assert names.get("onur"), "Onur's engine did not come up"
+          assert names.get("asude"), "Asude's engine did not come up"
+          assert len(s["pads"]) == 12, s["pads"]
+          print("both engines ready, twelve pads")
+          PY
+
+      - name: Make the disk image
+        working-directory: lightrack
+        run: |
+          rm -rf staging && mkdir staging
+          cp -R dist/LIGHTRACK.app staging/
+          ln -s /Applications staging/Applications
+          hdiutil create -volname LIGHTRACK -srcfolder staging \
+            -ov -format UDZO "LIGHTRACK-${{ matrix.arch }}.dmg"
+          shasum -a 256 "LIGHTRACK-${{ matrix.arch }}.dmg"
+
+      - name: Attach it to the release
+        working-directory: lightrack
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ inputs.tag }}" \
+            "LIGHTRACK-${{ matrix.arch }}.dmg" --clobber

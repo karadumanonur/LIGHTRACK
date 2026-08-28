@@ -23,6 +23,10 @@
 !packaging/*.spec
 !packaging/*.txt
 
+!.github/
+!.github/workflows/
+!.github/workflows/*.yml
+
 !compare/
 !compare/**
 compare/**/__pycache__/
