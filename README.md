@@ -1,4 +1,4 @@
-# LIGHTRACK — Asude Branch
+# Train Monitoring — Asude Branch
 
 Research code and a local analysis application for fibre Bragg grating (FBG) railway measurements. This branch focuses on robust axle counting, sensor comparison, frequency-domain inspection and matching FBG events with Infrabel axle-count records.
 
@@ -11,7 +11,7 @@ python -m pip install -r requirements.txt
 streamlit run fbg_analysis_dashboard.py
 ```
 
-The Windows and macOS release packages include Python and the required libraries. Raw recordings are deliberately not included; select the local `raw_data` folder when LIGHTRACK starts.
+The Windows and macOS release packages include Python and the required libraries. Raw recordings are deliberately not included; select the local `raw_data` folder when Train Monitoring starts.
 
 ## Repository layout
 

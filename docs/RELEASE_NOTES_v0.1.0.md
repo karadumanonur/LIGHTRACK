@@ -1,6 +1,6 @@
-# LIGHTRACK FBG Analysis v0.1.0
+# Train Monitoring v0.1.0
 
-Initial research release of Asude's LIGHTRACK FBG analysis application.
+Initial research release of Asude's Train Monitoring FBG analysis application.
 
 ## Included
 

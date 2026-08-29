@@ -16,8 +16,8 @@ PYINSTALLER_ARGS=(
   --clean
   --onedir
   --windowed
-  --name LIGHTRACK
-  --osx-bundle-identifier be.lightrack.fbg-analysis
+  --name "Train Monitoring"
+  --osx-bundle-identifier be.train-monitoring.fbg-analysis
   --distpath "$DIST_DIR"
   --workpath "$WORK_DIR"
   --specpath "$WORK_DIR"
@@ -41,6 +41,6 @@ fi
 
 python -m PyInstaller "${PYINSTALLER_ARGS[@]}" "$PROJECT_DIR/lightrack_exe.py"
 
-APP="$DIST_DIR/LIGHTRACK.app"
-"$APP/Contents/MacOS/LIGHTRACK" --self-test
+APP="$DIST_DIR/Train Monitoring.app"
+"$APP/Contents/MacOS/Train Monitoring" --self-test
 echo "Created $APP"

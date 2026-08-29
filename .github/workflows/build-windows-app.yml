@@ -1,4 +1,4 @@
-name: Build LIGHTRACK Windows app
+name: Build Train Monitoring Windows app
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ on:
       - ".github/workflows/build-windows-app.yml"
       - ".streamlit/config.toml"
       - "packaging/Build_LIGHTRACK_EXE.ps1"
-      - "packaging/Choose_LIGHTRACK_EXE_Data_Folder.cmd"
+      - "packaging/Choose_Train_Monitoring_Data_Folder.cmd"
       - "packaging/README_EXE.md"
       - "fbg_analysis_dashboard.py"
       - "lightrack_exe.py"
@@ -47,12 +47,12 @@ jobs:
 
       - name: Assemble distributable ZIP
         shell: pwsh
-        run: Compress-Archive -Path dist/windows/LIGHTRACK -DestinationPath LIGHTRACK_Windows.zip -CompressionLevel Optimal
+        run: Compress-Archive -Path dist/windows/TrainMonitoring -DestinationPath Train_Monitoring_Windows.zip -CompressionLevel Optimal
 
       - name: Upload Windows ZIP
         uses: actions/upload-artifact@v7
         with:
-          name: LIGHTRACK-Windows
-          path: LIGHTRACK_Windows.zip
+          name: Train-Monitoring-Windows
+          path: Train_Monitoring_Windows.zip
           if-no-files-found: error
           retention-days: 14

@@ -1,4 +1,4 @@
-# Deploying the LIGHTRACK dashboard
+# Deploying the Train Monitoring dashboard
 
 ## Recommended host
 

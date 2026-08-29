@@ -1,4 +1,4 @@
-name: Build LIGHTRACK macOS apps
+name: Build Train Monitoring macOS apps
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ on:
       - ".github/workflows/build-macos-app.yml"
       - ".streamlit/config.toml"
       - "packaging/build_lightrack_macos.sh"
-      - "packaging/Choose_LIGHTRACK_Mac_Data_Folder.command"
+      - "packaging/Choose_Train_Monitoring_Mac_Data_Folder.command"
       - "fbg_analysis_dashboard.py"
       - "lightrack_exe.py"
       - "packaging/README_MAC.md"
@@ -57,19 +57,19 @@ jobs:
 
       - name: Assemble distributable folder
         run: |
-          mkdir -p "package/LIGHTRACK_macOS_${{ matrix.architecture }}"
-          cp -R mac-dist/LIGHTRACK.app "package/LIGHTRACK_macOS_${{ matrix.architecture }}/"
-          cp packaging/README_MAC.md "package/LIGHTRACK_macOS_${{ matrix.architecture }}/"
-          cp packaging/Choose_LIGHTRACK_Mac_Data_Folder.command "package/LIGHTRACK_macOS_${{ matrix.architecture }}/"
-          chmod +x "package/LIGHTRACK_macOS_${{ matrix.architecture }}/Choose_LIGHTRACK_Mac_Data_Folder.command"
+          mkdir -p "package/Train_Monitoring_macOS_${{ matrix.architecture }}"
+          cp -R "mac-dist/Train Monitoring.app" "package/Train_Monitoring_macOS_${{ matrix.architecture }}/"
+          cp packaging/README_MAC.md "package/Train_Monitoring_macOS_${{ matrix.architecture }}/"
+          cp packaging/Choose_Train_Monitoring_Mac_Data_Folder.command "package/Train_Monitoring_macOS_${{ matrix.architecture }}/"
+          chmod +x "package/Train_Monitoring_macOS_${{ matrix.architecture }}/Choose_Train_Monitoring_Mac_Data_Folder.command"
           ditto -c -k --sequesterRsrc --keepParent \
-            "package/LIGHTRACK_macOS_${{ matrix.architecture }}" \
-            "LIGHTRACK_macOS_${{ matrix.architecture }}.zip"
+            "package/Train_Monitoring_macOS_${{ matrix.architecture }}" \
+            "Train_Monitoring_macOS_${{ matrix.architecture }}.zip"
 
       - name: Upload macOS ZIP
         uses: actions/upload-artifact@v7
         with:
-          name: LIGHTRACK-macOS-${{ matrix.architecture }}
-          path: LIGHTRACK_macOS_${{ matrix.architecture }}.zip
+          name: Train-Monitoring-macOS-${{ matrix.architecture }}
+          path: Train_Monitoring_macOS_${{ matrix.architecture }}.zip
           if-no-files-found: error
           retention-days: 14

@@ -721,8 +721,8 @@ def render_two_period_overview(recordings: pd.DataFrame) -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title="LIGHTRACK FBG analysis", layout="wide")
-    st.title("LIGHTRACK FBG recording analysis")
+    st.set_page_config(page_title="Train Monitoring", layout="wide")
+    st.title("Train Monitoring — FBG recording analysis")
 
     with st.sidebar:
         st.header("Data source")

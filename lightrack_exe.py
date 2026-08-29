@@ -1,4 +1,4 @@
-"""Desktop entry point for the local LIGHTRACK Streamlit app."""
+"""Desktop entry point for the local Train Monitoring Streamlit app."""
 
 from __future__ import annotations
 
@@ -75,7 +75,7 @@ def choose_data_root(initial: Path | None = None) -> Path:
     root.withdraw()
     root.attributes("-topmost", True)
     selected = filedialog.askdirectory(
-        title="Select the LIGHTRACK raw_data folder",
+        title="Select the Train Monitoring raw_data folder",
         initialdir=str(initial) if initial and initial.is_dir() else str(Path.home()),
         mustexist=True,
         parent=root,
@@ -86,8 +86,8 @@ def choose_data_root(initial: Path | None = None) -> Path:
     chosen = Path(selected).resolve()
     if not valid_data_root(chosen):
         messagebox.showerror(
-            "LIGHTRACK dataset",
-            "The selected folder does not contain timestamped LIGHTRACK .txt recordings.",
+            "Train Monitoring dataset",
+            "The selected folder does not contain timestamped FBG .txt recordings.",
             parent=root,
         )
         root.destroy()
@@ -126,7 +126,7 @@ def free_port() -> int:
             except OSError:
                 continue
             return port
-    raise RuntimeError("No free LIGHTRACK port was found between 8501 and 8510.")
+    raise RuntimeError("No free Train Monitoring port was found between 8501 and 8510.")
 
 
 def open_when_ready(url: str, port: int) -> None:
@@ -145,7 +145,7 @@ def main() -> None:
         dashboard = root / "fbg_analysis_dashboard.py"
         if not dashboard.is_file():
             raise FileNotFoundError(f"Bundled dashboard was not found: {dashboard}")
-        print("LIGHTRACK desktop package self-test passed.")
+        print("Train Monitoring desktop package self-test passed.")
         return
 
     force_choice = "--choose-data-folder" in sys.argv[1:]
@@ -168,10 +168,10 @@ def main() -> None:
 
     port = free_port()
     url = f"http://127.0.0.1:{port}"
-    print("LIGHTRACK FBG Analysis")
+    print("Train Monitoring — FBG Analysis")
     print(f"Dataset: {data_root}")
     print(f"Address: {url}")
-    print("Close this window or press Ctrl+C to stop LIGHTRACK.")
+    print("Close this window or press Ctrl+C to stop Train Monitoring.")
     threading.Thread(target=open_when_ready, args=(url, port), daemon=True).start()
 
     bootstrap.run(

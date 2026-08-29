@@ -47,7 +47,7 @@ $arguments = @(
     "--clean",
     "--onedir",
     "--console",
-    "--name", "LIGHTRACK",
+    "--name", "TrainMonitoring",
     "--distpath", $distDir,
     "--workpath", $workDir,
     "--specpath", $specDir,
@@ -72,15 +72,15 @@ if ($summary) {
     Write-Host "Note: the optional two-period summary was not bundled." -ForegroundColor Yellow
 }
 
-Write-Host "Building LIGHTRACK.exe. This can take several minutes..." -ForegroundColor Cyan
+Write-Host "Building TrainMonitoring.exe. This can take several minutes..." -ForegroundColor Cyan
 & $PythonPath @arguments
 if ($LASTEXITCODE -ne 0) {
-    throw "The LIGHTRACK executable build failed."
+    throw "The Train Monitoring executable build failed."
 }
 
-$appDir = Join-Path $distDir "LIGHTRACK"
+$appDir = Join-Path $distDir "TrainMonitoring"
 Copy-Item -LiteralPath (Join-Path $packagingDir "README_EXE.md") -Destination (Join-Path $appDir "README_EXE.md") -Force
-Copy-Item -LiteralPath (Join-Path $packagingDir "Choose_LIGHTRACK_EXE_Data_Folder.cmd") -Destination (Join-Path $appDir "Choose_LIGHTRACK_EXE_Data_Folder.cmd") -Force
+Copy-Item -LiteralPath (Join-Path $packagingDir "Choose_Train_Monitoring_Data_Folder.cmd") -Destination (Join-Path $appDir "Choose_Train_Monitoring_Data_Folder.cmd") -Force
 
-Write-Host "LIGHTRACK Windows application created:" -ForegroundColor Green
+Write-Host "Train Monitoring Windows application created:" -ForegroundColor Green
 Write-Host $appDir
