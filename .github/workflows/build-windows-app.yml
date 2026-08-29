@@ -1,0 +1,58 @@
+name: Build LIGHTRACK Windows app
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - Asude-Branch
+    paths:
+      - ".github/workflows/build-windows-app.yml"
+      - ".streamlit/config.toml"
+      - "packaging/Build_LIGHTRACK_EXE.ps1"
+      - "packaging/Choose_LIGHTRACK_EXE_Data_Folder.cmd"
+      - "packaging/README_EXE.md"
+      - "fbg_analysis_dashboard.py"
+      - "lightrack_exe.py"
+      - "requirements.txt"
+      - "requirements-build.txt"
+      - "self_calibrating_axle_detector.py"
+      - "sensor12_peak_tracker.py"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2025
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install application dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-build.txt
+
+      - name: Build Windows application
+        shell: pwsh
+        run: ./packaging/Build_LIGHTRACK_EXE.ps1 -PythonPath (Get-Command python).Source
+
+      - name: Assemble distributable ZIP
+        shell: pwsh
+        run: Compress-Archive -Path dist/windows/LIGHTRACK -DestinationPath LIGHTRACK_Windows.zip -CompressionLevel Optimal
+
+      - name: Upload Windows ZIP
+        uses: actions/upload-artifact@v7
+        with:
+          name: LIGHTRACK-Windows
+          path: LIGHTRACK_Windows.zip
+          if-no-files-found: error
+          retention-days: 14

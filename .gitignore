@@ -12,6 +12,14 @@ venv/
 *.html
 *.txt
 !requirements.txt
+!requirements-build.txt
 results/
 plots/
 outputs/
+build/
+dist/
+*.spec
+*.zip
+*.app/
+.DS_Store
+.self-test-user/

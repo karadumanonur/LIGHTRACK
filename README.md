@@ -1,31 +1,64 @@
-# Asude — FBG railway monitoring code
+# LIGHTRACK — Asude Branch
 
-This branch contains my Python scripts for analysing railway FBG recordings.
+Research code and a local analysis application for fibre Bragg grating (FBG) railway measurements. This branch focuses on robust axle counting, sensor comparison, frequency-domain inspection and matching FBG events with Infrabel axle-count records.
 
-The code covers:
+## Application
 
-- plotting and inspecting individual FBG channels;
-- detecting and counting axle peaks;
-- comparing alternative peak-detection algorithms;
-- matching FBG events with Infrabel Excel axle-count records;
-- reconstructing recordings split across adjacent files;
-- estimating train direction and velocity from multiple FBG sensors.
-
-Raw FBG recordings, Infrabel data files, generated plots, and result folders are intentionally not included.
-
-## Main scripts
-
-- `sensor12_peak_tracker.py` — signal processing and peak detection.
-- `find_different_axle_count.py` — batch axle counting and peak plots.
-- `compare_peak_algorithms.py` — benchmark of alternative algorithms.
-- `showcase_peak_algorithms.py` — visual comparison for one recording.
-- `match_fbg_to_infrabel_excel.py` — matching against the Infrabel Excel data.
-- `detect_train_direction_velocity.py` — multi-sensor direction and speed estimation.
-
-## Installation
+Start the dashboard from Python:
 
 ```powershell
 python -m pip install -r requirements.txt
+streamlit run fbg_analysis_dashboard.py
 ```
 
-Run any script with `--help` to see its available arguments.
+The Windows and macOS release packages include Python and the required libraries. Raw recordings are deliberately not included; select the local `raw_data` folder when LIGHTRACK starts.
+
+## Repository layout
+
+| Location | Purpose |
+|---|---|
+| `fbg_analysis_dashboard.py` | Interactive recording-analysis dashboard |
+| `self_calibrating_axle_detector.py` | Latest record-specific axle detector |
+| `sensor12_peak_tracker.py` | Validated fixed-parameter detector |
+| `compare_peak_algorithms.py` | Peak-detection method comparison |
+| `match_fbg_to_infrabel_excel.py` | FBG/Infrabel event matching |
+| `detect_train_direction_velocity.py` | Multi-sensor direction and speed study |
+| `exploratory/` | Earlier familiarisation and investigation scripts |
+| `packaging/` | Windows and macOS application builders and instructions |
+| `docs/` | Deployment and release documentation |
+
+## Self-calibrating axle detector
+
+The latest detector keeps the validated 0.5–40 Hz Butterworth band while learning record-specific decision limits:
+
+1. identify quiet background blocks;
+2. estimate background scale with calibrated MAD;
+3. select the direct-response polarity;
+4. learn height and prominence limits from background extremes;
+5. estimate response spacing from autocorrelation and candidate gaps;
+6. apply peak-width and shape checks;
+7. count accepted axle candidates.
+
+Run one physical sensor:
+
+```powershell
+python self_calibrating_axle_detector.py "path\to\recording.txt" --sensors 1 --physical-sensors --plot
+```
+
+## Data policy
+
+GitHub tracks source code and documentation, not the 17.9 GB dataset or reproducible outputs. The `.gitignore` excludes raw text recordings, spreadsheets, XML, plots, result folders and application builds. Each user supplies the measurement data locally.
+
+## Builds and releases
+
+GitHub Actions builds three downloadable packages:
+
+- Windows 64-bit;
+- macOS Apple Silicon;
+- macOS Intel.
+
+See `docs/DEPLOYMENT.md` for deployment details and the files in `packaging/` for platform-specific instructions.
+
+## Status
+
+This is a research prototype. Axle counts, train matching and sensor-health indicators require validation before operational use.

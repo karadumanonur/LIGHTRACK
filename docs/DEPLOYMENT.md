@@ -40,7 +40,7 @@ Confirm both modes:
 1. Push the required files to GitHub.
 2. Open `https://share.streamlit.io` and sign in with GitHub.
 3. Select **Create app** and choose the repository.
-4. Select the deployment branch, for example `Asude's-Branch`.
+4. Select the deployment branch `Asude-Branch`.
 5. Set the entrypoint to `fbg_analysis_dashboard.py`.
 6. Open **Advanced settings** and select Python 3.12.
 7. Deploy the app.
