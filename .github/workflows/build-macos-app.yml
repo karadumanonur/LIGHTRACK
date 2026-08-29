@@ -1,0 +1,74 @@
+name: Build LIGHTRACK macOS apps
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - Asude-Branch
+    paths:
+      - ".github/workflows/build-macos-app.yml"
+      - ".streamlit/config.toml"
+      - "build_lightrack_macos.sh"
+      - "Choose_LIGHTRACK_Mac_Data_Folder.command"
+      - "fbg_analysis_dashboard.py"
+      - "lightrack_exe.py"
+      - "README_MAC.md"
+      - "requirements.txt"
+      - "self_calibrating_axle_detector.py"
+      - "sensor12_peak_tracker.py"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: apple-silicon
+          - runner: macos-15-intel
+            architecture: intel
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install application dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt "pyinstaller==6.16.0"
+
+      - name: Build native macOS application
+        env:
+          LIGHTRACK_MAC_DIST: ${{ github.workspace }}/mac-dist
+          LIGHTRACK_MAC_WORK: ${{ github.workspace }}/mac-work
+        run: bash build_lightrack_macos.sh
+
+      - name: Assemble distributable folder
+        run: |
+          mkdir -p "package/LIGHTRACK_macOS_${{ matrix.architecture }}"
+          cp -R mac-dist/LIGHTRACK.app "package/LIGHTRACK_macOS_${{ matrix.architecture }}/"
+          cp README_MAC.md "package/LIGHTRACK_macOS_${{ matrix.architecture }}/"
+          cp Choose_LIGHTRACK_Mac_Data_Folder.command "package/LIGHTRACK_macOS_${{ matrix.architecture }}/"
+          chmod +x "package/LIGHTRACK_macOS_${{ matrix.architecture }}/Choose_LIGHTRACK_Mac_Data_Folder.command"
+          ditto -c -k --sequesterRsrc --keepParent \
+            "package/LIGHTRACK_macOS_${{ matrix.architecture }}" \
+            "LIGHTRACK_macOS_${{ matrix.architecture }}.zip"
+
+      - name: Upload macOS ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: LIGHTRACK-macOS-${{ matrix.architecture }}
+          path: LIGHTRACK_macOS_${{ matrix.architecture }}.zip
+          if-no-files-found: error
+          retention-days: 14

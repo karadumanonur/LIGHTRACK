@@ -36,12 +36,28 @@ HEAD_SENSORS = {1: (1, 2, 3, 4), 2: (5, 6, 7, 8), 3: (9, 10, 11, 12)}
 FIXED_HIGHPASS_HZ = 0.5
 FIXED_LOWPASS_HZ = 40.0
 MAX_PLOT_POINTS = 12_000
-TWO_PERIOD_SUMMARY = (
-    Path(__file__).resolve().parent.parent
-    / "outputs"
-    / "fbg1_4_5_9_10_two_periods_detrended_axle_peak_pm"
-    / "two_period_peak_change_mean_std_pm.csv"
-)
+SUMMARY_FILENAME = "two_period_peak_change_mean_std_pm.csv"
+
+
+def default_two_period_summary() -> Path:
+    configured = os.environ.get("LIGHTRACK_TWO_PERIOD_SUMMARY")
+    candidates = [
+        Path(configured).expanduser() if configured else None,
+        Path(__file__).resolve().parent / "assets" / SUMMARY_FILENAME,
+        (
+            Path(__file__).resolve().parent.parent
+            / "outputs"
+            / "fbg1_4_5_9_10_two_periods_detrended_axle_peak_pm"
+            / SUMMARY_FILENAME
+        ),
+    ]
+    return next(
+        (candidate.resolve() for candidate in candidates if candidate and candidate.is_file()),
+        Path(__file__).resolve().parent / "assets" / SUMMARY_FILENAME,
+    )
+
+
+TWO_PERIOD_SUMMARY = default_two_period_summary()
 
 
 def timestamp_from_name(path: Path) -> pd.Timestamp | None:
@@ -114,7 +130,19 @@ def index_recordings(root_text: str) -> pd.DataFrame:
         })
     if not rows:
         return pd.DataFrame(columns=["path", "timestamp", "date", "time", "period"])
-    return pd.DataFrame(rows).sort_values("timestamp").reset_index(drop=True)
+    indexed = pd.DataFrame(rows)
+    # The local archive contains 89 recordings in both ``Detected`` and the
+    # explicit first-period folder. Prefer the named period folders and show
+    # each physical recording only once in the selectors.
+    indexed["period_priority"] = indexed["period"].map(
+        lambda value: 0 if str(value).startswith("period_") else 1
+    )
+    indexed = (
+        indexed.sort_values(["timestamp", "period_priority", "path"])
+        .drop_duplicates(subset=["timestamp"], keep="first")
+        .drop(columns="period_priority")
+    )
+    return indexed.reset_index(drop=True)
 
 
 @st.cache_data(show_spinner=False)
@@ -750,7 +778,7 @@ def main() -> None:
         )
         st.stop()
     with st.sidebar:
-        st.success(f"Found {len(recordings):,} timestamped recordings")
+        st.success(f"Found {len(recordings):,} unique timestamped recordings")
 
     view_options = ["Recording explorer"]
     if TWO_PERIOD_SUMMARY.is_file():
