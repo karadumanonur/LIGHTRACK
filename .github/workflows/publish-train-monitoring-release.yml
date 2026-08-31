@@ -19,12 +19,12 @@ jobs:
         shell: bash
         run: |
           mkdir -p release-assets/windows release-assets/apple-silicon release-assets/intel
-          gh run download 33373104261 --name Train-Monitoring-Windows --dir release-assets/windows
-          gh run download 33373104266 --name Train-Monitoring-macOS-apple-silicon --dir release-assets/apple-silicon
-          gh run download 33373104266 --name Train-Monitoring-macOS-intel --dir release-assets/intel
+          gh run download 33373104261 --repo asude48/LIGHTRACK --name Train-Monitoring-Windows --dir release-assets/windows
+          gh run download 33373104266 --repo asude48/LIGHTRACK --name Train-Monitoring-macOS-apple-silicon --dir release-assets/apple-silicon
+          gh run download 33373104266 --repo asude48/LIGHTRACK --name Train-Monitoring-macOS-intel --dir release-assets/intel
 
       - name: Publish Train Monitoring v0.1.1
         shell: bash
         run: |
-          gh release create v0.1.1 --target Asude-Branch --title "Train Monitoring v0.1.1" --notes "Adds the bundled two-period detrended axle-amplitude comparison for May-June and July, with mean plus or minus one standard deviation, physical FBG 1, 4, 5, 9 and 10 selection, and click-through to raw signals and axle counts. Raw FBG recordings are not included; select the local raw_data folder at startup. Research prototype: validate before operational use."
-          gh release upload v0.1.1 release-assets/windows/Train_Monitoring_Windows.zip release-assets/apple-silicon/Train_Monitoring_macOS_apple-silicon.zip release-assets/intel/Train_Monitoring_macOS_intel.zip --clobber
+          gh release create v0.1.1 --repo asude48/LIGHTRACK --target Asude-Branch --title "Train Monitoring v0.1.1" --notes "Adds the bundled two-period detrended axle-amplitude comparison for May-June and July, with mean plus or minus one standard deviation, physical FBG 1, 4, 5, 9 and 10 selection, and click-through to raw signals and axle counts. Raw FBG recordings are not included; select the local raw_data folder at startup. Research prototype: validate before operational use."
+          gh release upload v0.1.1 --repo asude48/LIGHTRACK release-assets/windows/Train_Monitoring_Windows.zip release-assets/apple-silicon/Train_Monitoring_macOS_apple-silicon.zip release-assets/intel/Train_Monitoring_macOS_intel.zip --clobber
