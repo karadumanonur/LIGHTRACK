@@ -1,0 +1,30 @@
+name: Publish Train Monitoring release
+
+on:
+  push:
+    branches: [Asude-Branch]
+    paths: [".github/workflows/publish-train-monitoring-release.yml"]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download verified packages
+        shell: bash
+        run: |
+          mkdir -p release-assets/windows release-assets/apple-silicon release-assets/intel
+          gh run download 33390797045 --repo asude48/LIGHTRACK --name Train-Monitoring-Windows --dir release-assets/windows
+          gh run download 33390797197 --repo asude48/LIGHTRACK --name Train-Monitoring-macOS-apple-silicon --dir release-assets/apple-silicon
+          gh run download 33390797197 --repo asude48/LIGHTRACK --name Train-Monitoring-macOS-intel --dir release-assets/intel
+
+      - name: Publish Train Monitoring v0.1.2
+        shell: bash
+        run: |
+          gh release create v0.1.2 --repo asude48/LIGHTRACK --target Asude-Branch --title "Train Monitoring v0.1.2" --notes "Fixes dashboard caching for recording loading and analysis. Includes refreshed Windows, macOS Apple Silicon and macOS Intel applications. Raw FBG recordings are not included; select the local raw_data folder at startup. Research prototype: validate before operational use."
+          gh release upload v0.1.2 --repo asude48/LIGHTRACK release-assets/windows/Train_Monitoring_Windows.zip release-assets/apple-silicon/Train_Monitoring_macOS_apple-silicon.zip release-assets/intel/Train_Monitoring_macOS_intel.zip --clobber

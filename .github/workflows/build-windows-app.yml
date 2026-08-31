@@ -13,6 +13,7 @@ on:
       - "packaging/README_EXE.md"
       - "fbg_analysis_dashboard.py"
       - "lightrack_exe.py"
+      - "assets/two_period_peak_change_mean_std_pm.csv"
       - "requirements.txt"
       - "requirements-build.txt"
       - "self_calibrating_axle_detector.py"
