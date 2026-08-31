@@ -165,7 +165,7 @@ def load_two_period_summary(path_text: str) -> pd.DataFrame:
     ].copy()
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_resource(show_spinner=False)
 def load_physical_fbg(path_text: str, physical_fbg: int) -> dict[str, object]:
     path = Path(path_text)
     frame = pd.read_csv(
@@ -198,7 +198,7 @@ def load_physical_fbg(path_text: str, physical_fbg: int) -> dict[str, object]:
     }
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_resource(show_spinner=False)
 def analyse_recording(path_text: str, physical_fbg: int) -> dict[str, object]:
     loaded = load_physical_fbg(path_text, physical_fbg)
     time_s = np.asarray(loaded["time_s"], dtype=float)
