@@ -12,6 +12,7 @@ on:
       - "packaging/Choose_Train_Monitoring_Mac_Data_Folder.command"
       - "fbg_analysis_dashboard.py"
       - "lightrack_exe.py"
+      - "assets/two_period_peak_change_mean_std_pm.csv"
       - "packaging/README_MAC.md"
       - "requirements-build.txt"
       - "requirements.txt"
