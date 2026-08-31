@@ -1,24 +1,9 @@
 name: Publish Train Monitoring release
 
 on:
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: Release tag
-        required: true
-        default: v0.1.1
-      target:
-        description: Branch or commit for the tag
-        required: true
-        default: Asude-Branch
-      windows_run:
-        description: Successful Windows workflow run ID
-        required: true
-        default: "33373104261"
-      macos_run:
-        description: Successful macOS workflow run ID
-        required: true
-        default: "33373104266"
+  push:
+    branches: [Asude-Branch]
+    paths: [".github/workflows/publish-train-monitoring-release.yml"]
 
 permissions:
   actions: read
@@ -29,57 +14,17 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      RELEASE_TAG: ${{ inputs.tag }}
-      RELEASE_TARGET: ${{ inputs.target }}
-      WINDOWS_RUN: ${{ inputs.windows_run }}
-      MACOS_RUN: ${{ inputs.macos_run }}
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Download verified application artifacts
+      - name: Download verified packages
         shell: bash
         run: |
           mkdir -p release-assets/windows release-assets/apple-silicon release-assets/intel
-          gh run download "$WINDOWS_RUN" --name Train-Monitoring-Windows --dir release-assets/windows
-          gh run download "$MACOS_RUN" --name Train-Monitoring-macOS-apple-silicon --dir release-assets/apple-silicon
-          gh run download "$MACOS_RUN" --name Train-Monitoring-macOS-intel --dir release-assets/intel
+          gh run download 33373104261 --name Train-Monitoring-Windows --dir release-assets/windows
+          gh run download 33373104266 --name Train-Monitoring-macOS-apple-silicon --dir release-assets/apple-silicon
+          gh run download 33373104266 --name Train-Monitoring-macOS-intel --dir release-assets/intel
 
-      - name: Write release notes
+      - name: Publish Train Monitoring v0.1.1
         shell: bash
         run: |
-          cat > release-notes.md <<'EOF'
-          Updated Train Monitoring desktop release.
-
-          Added
-          - Two-period detrended axle-amplitude comparison for Period 1 (May-June) and Period 2 (July).
-          - Mean plus or minus one standard deviation for each recording.
-          - Interactive selection for physical FBG 1, 4, 5, 9 and 10.
-          - Click-through from a mean point to the raw signal and latest axle-count result.
-
-          Packaging
-          - The compact two-period summary is bundled in the Windows and macOS packages.
-          - Desktop package self-tests now fail if this analysis asset is missing.
-
-          Data
-          Raw FBG recordings are not included. Select the local raw_data folder when the application starts.
-
-          Research status
-          This is a research prototype and requires validation before operational use.
-          EOF
-
-      - name: Create release and attach applications
-        shell: bash
-        run: |
-          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" \
-              --target "$RELEASE_TARGET" \
-              --title "Train Monitoring ${RELEASE_TAG}" \
-              --notes-file release-notes.md
-          fi
-          gh release upload "$RELEASE_TAG" \
-            release-assets/windows/Train_Monitoring_Windows.zip \
-            release-assets/apple-silicon/Train_Monitoring_macOS_apple-silicon.zip \
-            release-assets/intel/Train_Monitoring_macOS_intel.zip \
-            --clobber
+          gh release create v0.1.1 --target Asude-Branch --title "Train Monitoring v0.1.1" --notes "Adds the bundled two-period detrended axle-amplitude comparison for May-June and July, with mean plus or minus one standard deviation, physical FBG 1, 4, 5, 9 and 10 selection, and click-through to raw signals and axle counts. Raw FBG recordings are not included; select the local raw_data folder at startup. Research prototype: validate before operational use."
+          gh release upload v0.1.1 release-assets/windows/Train_Monitoring_Windows.zip release-assets/apple-silicon/Train_Monitoring_macOS_apple-silicon.zip release-assets/intel/Train_Monitoring_macOS_intel.zip --clobber
