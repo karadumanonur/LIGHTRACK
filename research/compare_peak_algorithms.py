@@ -1,4 +1,4 @@
-"""Benchmark several FBG axle-peak detectors against independent time labels.
+"""Research utility for benchmarking FBG axle-peak detectors.
 
 Ground-truth labels are taken only from FBG recordings having exactly one
 time-window Infrabel candidate, a complete ACAT counter cycle, and one FBG
@@ -18,6 +18,8 @@ import numpy as np
 import pandas as pd
 from scipy.signal import butter, find_peaks, sosfiltfilt
 
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 ALGORITHM_LABELS = {
     "current_robust": "Current: MAD prominence + relative height",
@@ -487,7 +489,7 @@ def main() -> None:
     data_dir = args.data_dir.expanduser().resolve()
     output_dir = args.output_dir.expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    detector_dir = (args.detector_dir or Path(__file__).resolve().parents[1] / "fbg_matching_update").resolve()
+    detector_dir = (args.detector_dir or PROJECT_ROOT).resolve()
     butterworth_process, detect_peaks, load_fbg_file, robust_sigma, sampling_rate = load_detector_functions(detector_dir)
     labels = independent_labels(args.candidate_csv.expanduser().resolve())
     labels.to_csv(output_dir / "benchmark_ground_truth.csv", index=False)

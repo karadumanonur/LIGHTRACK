@@ -1,4 +1,4 @@
-"""Cross-check FBG axle detections against the Infrabel ACAT Excel log.
+"""Research utility for matching FBG detections to Infrabel ACAT records.
 
 The FBG recording timestamp is UTC (``Z``). It is converted to Brussels local
 time before matching. Consecutive ACAT counter updates are first collapsed into
@@ -11,11 +11,16 @@ from __future__ import annotations
 
 import argparse
 import html
+import sys
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from sensor12_peak_tracker import (
     butterworth_process,
@@ -195,20 +200,22 @@ def load_fbg_summary(
     path: Path, time_reference: str, merge_gap_s: float | None
 ) -> pd.DataFrame:
     frame = pd.read_csv(path)
-    required = {
-        "file",
-        "recording_utc",
-        "peak_count",
-        "event_start_s",
-        "event_end_s",
-    }
+    required = {"file", "peak_count", "event_start_s", "event_end_s"}
     missing = sorted(required - set(frame.columns))
     if missing:
         raise ValueError(f"FBG summary is missing columns: {', '.join(missing)}")
+    recording_column = (
+        "recording_utc" if "recording_utc" in frame.columns else "recording_time_utc"
+    )
+    if recording_column not in frame.columns:
+        raise ValueError(
+            "FBG summary is missing a recording timestamp column "
+            "(recording_utc or recording_time_utc)"
+        )
 
     frame = frame.copy()
     frame["recording_time_utc"] = pd.to_datetime(
-        frame["recording_utc"], utc=True, errors="coerce"
+        frame[recording_column], format="mixed", utc=True, errors="coerce"
     )
     frame["event_start_s"] = pd.to_numeric(frame["event_start_s"], errors="coerce")
     frame["event_end_s"] = pd.to_numeric(frame["event_end_s"], errors="coerce")
@@ -222,7 +229,8 @@ def load_fbg_summary(
     frame = frame.dropna(
         subset=["recording_time_utc", "event_time_utc", "event_end_utc", "detected_axles"]
     )
-    frame["split_frame_count"] = 1
+    if "split_frame_count" not in frame.columns:
+        frame["split_frame_count"] = 1
     if merge_gap_s is not None:
         frame = merge_split_events(frame, merge_gap_s)
     frame["recording_time_local"] = frame["recording_time_utc"].dt.tz_convert(BRUSSELS)
@@ -464,6 +472,18 @@ def display_value(value, digits: int = 2) -> str:
     return str(value)
 
 
+def display_duration_minutes(value) -> str:
+    """Format decimal minutes as an unambiguous minutes-and-seconds duration."""
+    try:
+        total_seconds = round(abs(float(value)) * 60.0)
+    except (TypeError, ValueError):
+        return "—"
+    if not np.isfinite(total_seconds):
+        return "—"
+    minutes, seconds = divmod(int(total_seconds), 60)
+    return f"{minutes} min {seconds:02d} s"
+
+
 def write_html_gallery(
     folder: Path,
     confidence: str,
@@ -483,7 +503,7 @@ def write_html_gallery(
               <div class="facts">
                 <span>FBG axles: <b>{display_value(row.get('detected_axles'), 0)}</b></span>
                 <span>Infrabel axles: <b>{display_value(row.get('infrabel_axles'), 0)}</b></span>
-                <span>Time difference: <b>{display_value(row.get('absolute_time_difference_min'))} min</b></span>
+                <span>Time difference: <b>{display_duration_minutes(row.get('absolute_time_difference_min'))}</b></span>
                 <span>Boundary: <b>{html.escape(display_value(row.get('matched_counter_boundary')))}</b></span>
                 <span>Split frames: <b>{display_value(row.get('split_frame_count'), 0)}</b></span>
               </div>

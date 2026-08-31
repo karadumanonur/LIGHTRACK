@@ -1,14 +1,19 @@
-"""Scan FBG recordings and find trains with a different sensor-12 peak count."""
+"""Research utility for finding recordings with unusual axle counts."""
 
 from __future__ import annotations
 
 import argparse
+import sys
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from sensor12_peak_tracker import (
     butterworth_process,
@@ -98,6 +103,12 @@ def parse_args() -> argparse.Namespace:
         "--pattern", default="20*.txt", help="Recording filename pattern"
     )
     parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Process only the first N recordings after sorting by filename",
+    )
+    parser.add_argument(
         "--reference-count",
         type=int,
         default=None,
@@ -156,6 +167,10 @@ def main() -> None:
     args = parse_args()
     directory = args.directory.expanduser().resolve()
     files = sorted(directory.glob(args.pattern))
+    if args.limit is not None:
+        if args.limit <= 0:
+            raise ValueError("--limit must be greater than zero")
+        files = files[: args.limit]
     if not files:
         raise FileNotFoundError(f"No files match {args.pattern!r} in {directory}")
 
@@ -169,7 +184,8 @@ def main() -> None:
     for number, path in enumerate(files, start=1):
         try:
             result, plot_data = process_recording(path, args)
-            cached_plot_data[path] = plot_data
+            if args.plot_different:
+                cached_plot_data[path] = plot_data
             print(f"[{number:>3}/{len(files)}] {path.name}: {result['peak_count']} peaks")
             if args.plot_all:
                 plot_results(

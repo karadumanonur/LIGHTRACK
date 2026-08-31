@@ -1,4 +1,4 @@
-"""Estimate train direction and velocity from multiple spatially separated FBGs.
+"""Research utility for estimating direction and velocity from separated FBGs.
 
 Physical layout (positive coordinate points left in the supplied drawing):
 

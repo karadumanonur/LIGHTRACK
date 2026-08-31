@@ -20,9 +20,7 @@ The Windows and macOS release packages include Python and the required libraries
 | `fbg_analysis_dashboard.py` | Interactive recording-analysis dashboard |
 | `self_calibrating_axle_detector.py` | Latest record-specific axle detector |
 | `sensor12_peak_tracker.py` | Validated fixed-parameter detector |
-| `compare_peak_algorithms.py` | Peak-detection method comparison |
-| `match_fbg_to_infrabel_excel.py` | FBG/Infrabel event matching |
-| `detect_train_direction_velocity.py` | Multi-sensor direction and speed study |
+| `research/` | Reproducible comparison, matching and movement-study scripts |
 | `exploratory/` | Earlier familiarisation and investigation scripts |
 | `packaging/` | Windows and macOS application builders and instructions |
 | `docs/` | Deployment and release documentation |
