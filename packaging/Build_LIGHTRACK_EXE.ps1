@@ -81,6 +81,10 @@ if ($LASTEXITCODE -ne 0) {
 $appDir = Join-Path $distDir "TrainMonitoring"
 Copy-Item -LiteralPath (Join-Path $packagingDir "README_EXE.md") -Destination (Join-Path $appDir "README_EXE.md") -Force
 Copy-Item -LiteralPath (Join-Path $packagingDir "Choose_Train_Monitoring_Data_Folder.cmd") -Destination (Join-Path $appDir "Choose_Train_Monitoring_Data_Folder.cmd") -Force
+& (Join-Path $appDir "TrainMonitoring.exe") --self-test
+if ($LASTEXITCODE -ne 0) {
+    throw "The packaged Train Monitoring self-test failed."
+}
 
 Write-Host "Train Monitoring Windows application created:" -ForegroundColor Green
 Write-Host $appDir
