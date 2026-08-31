@@ -143,8 +143,13 @@ def main() -> None:
     if "--self-test" in sys.argv[1:]:
         root = resource_root()
         dashboard = root / "fbg_analysis_dashboard.py"
+        summary = root / "assets" / "two_period_peak_change_mean_std_pm.csv"
         if not dashboard.is_file():
             raise FileNotFoundError(f"Bundled dashboard was not found: {dashboard}")
+        if not summary.is_file():
+            raise FileNotFoundError(
+                f"Bundled two-period mean/std summary was not found: {summary}"
+            )
         print("Train Monitoring desktop package self-test passed.")
         return
 

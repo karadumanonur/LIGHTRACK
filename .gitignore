@@ -3,6 +3,8 @@ __pycache__/
 .venv/
 venv/
 *.csv
+# This compact derived summary is a required desktop-app asset, not raw data.
+!assets/two_period_peak_change_mean_std_pm.csv
 *.xlsx
 *.xls
 *.xml
