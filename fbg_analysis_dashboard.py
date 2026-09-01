@@ -165,8 +165,9 @@ def load_two_period_summary(path_text: str) -> pd.DataFrame:
     ].copy()
 
 
-@st.cache_resource(show_spinner=False)
-def load_physical_fbg(path_text: str, physical_fbg: int) -> dict[str, object]:
+@st.cache_resource(show_spinner=False, max_entries=2)
+def load_recording_frame(path_text: str) -> pd.DataFrame:
+    """Read one recording once and keep only the two most recent files in RAM."""
     path = Path(path_text)
     frame = pd.read_csv(
         path,
@@ -180,6 +181,14 @@ def load_physical_fbg(path_text: str, physical_fbg: int) -> dict[str, object]:
     frame = frame.dropna(subset=[0]).sort_values(0).drop_duplicates(0)
     if len(frame) < 20:
         raise ValueError("The recording contains fewer than 20 valid samples")
+    return frame
+
+
+def load_physical_fbg(path_text: str, physical_fbg: int) -> dict[str, object]:
+    # All physical FBGs in a recording share the same source table. Reading
+    # that ~10 MB text file separately for every sensor caused large temporary
+    # DataFrames and could terminate the packaged Streamlit server.
+    frame = load_recording_frame(path_text)
 
     medians = frame.loc[:, 1:12].median(axis=0, skipna=True)
     if not np.isfinite(medians.loc[1]) or not np.isfinite(medians.loc[12]):
@@ -198,7 +207,7 @@ def load_physical_fbg(path_text: str, physical_fbg: int) -> dict[str, object]:
     }
 
 
-@st.cache_resource(show_spinner=False)
+@st.cache_resource(show_spinner=False, max_entries=12)
 def analyse_recording(path_text: str, physical_fbg: int) -> dict[str, object]:
     loaded = load_physical_fbg(path_text, physical_fbg)
     time_s = np.asarray(loaded["time_s"], dtype=float)
@@ -814,7 +823,11 @@ def main() -> None:
         else list(HEAD_SENSORS[int(selected_head)])
     )
     selected_fbg = controls[3].selectbox(
-        "4. Physical FBG", ["All", *available_fbgs]
+        "4. Physical FBG",
+        ["All", *available_fbgs],
+        # Keep the comparison option, but do not analyse all 12 large signals
+        # automatically whenever the date or recording changes.
+        index=1,
     )
 
     selected_sensors = (
