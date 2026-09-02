@@ -19,12 +19,12 @@ jobs:
         shell: bash
         run: |
           mkdir -p release-assets/windows release-assets/apple-silicon release-assets/intel
-          gh run download 33484868052 --repo asude48/LIGHTRACK --name Train-Monitoring-Windows --dir release-assets/windows
-          gh run download 33484868191 --repo asude48/LIGHTRACK --name Train-Monitoring-macOS-apple-silicon --dir release-assets/apple-silicon
-          gh run download 33484868191 --repo asude48/LIGHTRACK --name Train-Monitoring-macOS-intel --dir release-assets/intel
+          gh run download 33604480530 --repo asude48/LIGHTRACK --name Train-Monitoring-Windows --dir release-assets/windows
+          gh run download 33604480449 --repo asude48/LIGHTRACK --name Train-Monitoring-macOS-apple-silicon --dir release-assets/apple-silicon
+          gh run download 33604480449 --repo asude48/LIGHTRACK --name Train-Monitoring-macOS-intel --dir release-assets/intel
 
-      - name: Publish Train Monitoring v0.1.3
+      - name: Publish Train Monitoring v0.1.4
         shell: bash
         run: |
-          gh release create v0.1.3 --repo asude48/LIGHTRACK --target Asude-Branch --title "Train Monitoring v0.1.3" --notes "Prevents the local dashboard from exhausting memory when switching dates and recordings. Each recording is now loaded once, cached analysis is bounded, and the initial view opens a single FBG while retaining the All option. Includes refreshed Windows, macOS Apple Silicon and macOS Intel applications. Raw FBG recordings are not included; select the local raw_data folder at startup. Research prototype: validate before operational use."
-          gh release upload v0.1.3 --repo asude48/LIGHTRACK release-assets/windows/Train_Monitoring_Windows.zip release-assets/apple-silicon/Train_Monitoring_macOS_apple-silicon.zip release-assets/intel/Train_Monitoring_macOS_intel.zip --clobber
+          gh release create v0.1.4 --repo asude48/LIGHTRACK --target Asude-Branch --title "Train Monitoring v0.1.4" --notes "Fixes macOS plot rendering by using Matplotlib's non-interactive Agg backend in the Streamlit worker thread. Retains the recording-memory safeguards introduced in v0.1.3. Includes refreshed Windows, macOS Apple Silicon and macOS Intel applications. Raw FBG recordings are not included; select the local raw_data folder at startup. Research prototype: validate before operational use."
+          gh release upload v0.1.4 --repo asude48/LIGHTRACK release-assets/windows/Train_Monitoring_Windows.zip release-assets/apple-silicon/Train_Monitoring_macOS_apple-silicon.zip release-assets/intel/Train_Monitoring_macOS_intel.zip --clobber
