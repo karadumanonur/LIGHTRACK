@@ -17,6 +17,11 @@ from datetime import date
 from pathlib import Path
 
 import altair as alt
+import matplotlib
+
+# Streamlit renders figures into the browser.  A desktop GUI backend such as
+# macOS Cocoa cannot create figures from Streamlit's worker thread.
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd

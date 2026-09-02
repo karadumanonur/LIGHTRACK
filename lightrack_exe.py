@@ -29,6 +29,7 @@ def user_data_root() -> Path:
 _matplotlib_cache = user_data_root() / "matplotlib"
 _matplotlib_cache.mkdir(parents=True, exist_ok=True)
 os.environ["MPLCONFIGDIR"] = str(_matplotlib_cache)
+os.environ.setdefault("MPLBACKEND", "Agg")
 
 # This import lets PyInstaller discover the dashboard's scientific imports.
 import fbg_analysis_dashboard  # noqa: F401
