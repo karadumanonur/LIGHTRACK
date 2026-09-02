@@ -124,9 +124,11 @@ def passage_peaks(col: np.ndarray, fs: float, marks_s, half_s: float = 0.12
     small on a healthy sensor under an even train, large where the bond is
     going and the response depends on which wheel is overhead.
 
-    With no marks there is nothing to measure a response to, so the whole
-    record is taken and the largest excursions stand in for it — an honest
-    number for a file with no train in it, which is near zero.
+    With no marks there is no passage, and a passage that did not happen has
+    no response and no spread: both are zero. Reading the largest excursions of
+    the whole record instead would put a number on the noise floor and draw it
+    on the same axis as a train, which invites the two to be compared when they
+    are not the same measurement.
     """
     y = remove_baseline(col, fs)
     if len(marks_s):
@@ -139,10 +141,7 @@ def passage_peaks(col: np.ndarray, fs: float, marks_s, half_s: float = 0.12
                 vals.append(max(0.0, float(np.max(y[a:b]))))
         if vals:
             return float(np.mean(vals)), float(np.std(vals))
-    k = max(1, len(y) // 200)
-    tops = np.max(y[:(len(y) // k) * k].reshape(-1, k), axis=1)
-    tops = np.clip(np.sort(tops)[-20:], 0.0, None)
-    return float(np.mean(tops)), float(np.std(tops))
+    return 0.0, 0.0
 
 
 def spectra(col: np.ndarray, fs: float, points: int = 900) -> dict:
