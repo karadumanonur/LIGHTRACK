@@ -7,6 +7,10 @@
 # Apple Silicon one at all. They are independent — one failing leaves the
 # other's disk image on the release — so to save runner minutes when only one
 # is wanted, re-run the single job you need from the run's page.
+#
+# The test opens the installed bundle through LaunchServices rather than
+# running the binary inside it. A bundle can be built so that the binary works
+# and the bundle does not, and that is exactly the failure a stranger meets.
 
 name: Mac disk image
 
@@ -16,7 +20,7 @@ on:
       tag:
         description: the release tag to attach the disk image to
         required: true
-        default: v1.2
+        default: v1.4
 
 jobs:
   build:
@@ -66,25 +70,24 @@ jobs:
         working-directory: lightrack
         run: python -m PyInstaller --noconfirm packaging/lightrack.spec
 
-      # Unsigned bundles are refused outright on Apple Silicon rather than
-      # merely warned about. An ad-hoc signature is not a developer identity
-      # and does not get past quarantine on its own, but it does turn "damaged"
-      # back into the ordinary "unidentified developer" that a right-click and
-      # Open can answer.
-      - name: Sign it ad-hoc
-        working-directory: lightrack
-        run: codesign --force --deep --sign - dist/LIGHTRACK.app
-
-      # A build that starts is not a build that works. This makes a record with
-      # axles we chose and asks the program to count them, checking the answer
-      # against what the same record gives on Windows. Two builds of the same
-      # code over the same bytes must agree.
-      - name: Count something
+      - name: Look at what was built
         working-directory: lightrack
         run: |
-          python packaging/make_fake_record.py fake
-          python packaging/smoke_test.py             dist/LIGHTRACK.app/Contents/MacOS/LIGHTRACK fake
+          test -d dist/LIGHTRACK.app || { echo "no bundle"; exit 1; }
+          test -x dist/LIGHTRACK.app/Contents/MacOS/LIGHTRACK
+          test -f dist/LIGHTRACK.app/Contents/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' \
+            dist/LIGHTRACK.app/Contents/Info.plist
+          du -sh dist/LIGHTRACK.app
 
+      # An ad-hoc signature is not a developer identity and does not get past
+      # quarantine, but without one Apple Silicon refuses an unsigned bundle
+      # outright rather than offering the "open anyway" a person can answer.
+      - name: Sign it ad-hoc
+        working-directory: lightrack
+        run: |
+          codesign --force --deep --sign - dist/LIGHTRACK.app
+          codesign --verify --deep --strict --verbose=2 dist/LIGHTRACK.app
 
       - name: Make the disk image
         working-directory: lightrack
@@ -95,6 +98,36 @@ jobs:
           hdiutil create -volname LIGHTRACK -srcfolder staging \
             -ov -format UDZO "LIGHTRACK-${{ matrix.arch }}.dmg"
           shasum -a 256 "LIGHTRACK-${{ matrix.arch }}.dmg"
+
+      # Installed the way a person installs it: mount the image, drag the app
+      # across, eject. Everything after this point is testing what they will
+      # actually have, not what the build directory happens to hold.
+      - name: Install it from the disk image
+        working-directory: lightrack
+        run: |
+          rm -rf "$HOME/Library/Application Support/LIGHTRACK"
+          rm -rf /Applications/LIGHTRACK.app
+          hdiutil attach "LIGHTRACK-${{ matrix.arch }}.dmg" \
+            -mountpoint /Volumes/LIGHTRACK -nobrowse -quiet
+          cp -R /Volumes/LIGHTRACK/LIGHTRACK.app /Applications/
+          hdiutil detach /Volumes/LIGHTRACK -quiet
+          test -x /Applications/LIGHTRACK.app/Contents/MacOS/LIGHTRACK
+
+      # A build that starts is not a build that works. This makes a record
+      # with axles we chose and asks the program to count them, checking the
+      # answer against what the same record gives on Windows. Two builds of
+      # the same code over the same bytes must agree.
+      - name: Count something, opening it as a person would
+        working-directory: lightrack
+        run: |
+          python packaging/make_fake_record.py fake
+          python packaging/smoke_test.py /Applications/LIGHTRACK.app fake
+
+      - name: What the program wrote
+        if: always()
+        run: |
+          log="$HOME/Library/Application Support/LIGHTRACK/lightrack.log"
+          if [ -f "$log" ]; then cat "$log"; else echo "no log written"; fi
 
       - name: Attach it to the release
         working-directory: lightrack

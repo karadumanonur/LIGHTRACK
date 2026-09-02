@@ -16,6 +16,12 @@ is checked there is that it runs at all and returns a trace of the right
 length, since its failure mode is an import that never happens.
 
     python packaging/smoke_test.py dist/LIGHTRACK.exe records/
+    python packaging/smoke_test.py /Applications/LIGHTRACK.app records/
+
+Given a bundle it starts it through LaunchServices, the way a double-click
+does, rather than reaching inside for the binary. That distinction is not
+pedantic: a bundle can be built so that the binary runs and the bundle does
+not, and testing the binary hides exactly the failure a stranger will meet.
 """
 
 from __future__ import annotations
@@ -91,19 +97,38 @@ def stop(proc) -> bool:
     return False
 
 
+def stop_bundle(app: Path) -> bool:
+    """Stop something LaunchServices started, which we have no handle on."""
+    subprocess.run(["pkill", "-f", str(app / "Contents" / "MacOS")],
+                   capture_output=True)
+    for _ in range(30):
+        if not port_open():
+            return True
+        time.sleep(1)
+    return False
+
+
 def main() -> int:
-    binary, folder = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve()
+    target, folder = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve()
+    bundle = target.suffix == ".app"
 
-    # The program keeps its store beside itself, so running this twice in the
-    # same place would measure a store that already holds another run's
-    # records. A copy in a fresh directory is also the honest test: what a
-    # stranger gets is a program with no store at all.
-    tmp = Path(tempfile.mkdtemp(prefix="lightrack-smoke-"))
-    here = tmp / binary.name
-    shutil.copy2(binary, here)
-
-    proc = subprocess.Popen([str(here), "--no-browser", "--port", str(PORT)],
-                            start_new_session=(os.name == "posix"))
+    tmp, proc = None, None
+    if bundle:
+        # Started the way a person starts it. `open` hands off to
+        # LaunchServices and returns at once, so there is no process to own
+        # here; it is found and stopped by name afterwards.
+        subprocess.run(["open", "-a", str(target), "--args",
+                        "--no-browser", "--port", str(PORT)], check=True)
+    else:
+        # The program keeps its store beside itself, so running this twice in
+        # the same place would measure a store that already holds another
+        # run's records. A copy in a fresh directory is also the honest test:
+        # what a stranger gets is a program with no store at all.
+        tmp = Path(tempfile.mkdtemp(prefix="lightrack-smoke-"))
+        here = tmp / target.name
+        shutil.copy2(target, here)
+        proc = subprocess.Popen([str(here), "--no-browser", "--port", str(PORT)],
+                                start_new_session=(os.name == "posix"))
     checks: list[tuple[bool, str]] = []
     try:
         setup = get("/api/setup", tries=45)
@@ -147,8 +172,9 @@ def main() -> int:
         checks.append((raw.get("unit") == "pm" and len(raw.get("t", [])) > 10,
                        f"raw comes back in pm: {raw.get('unit')}, {len(raw.get('t', []))} points"))
     finally:
-        released = stop(proc)
-        shutil.rmtree(tmp, ignore_errors=True)
+        released = stop(proc) if proc is not None else stop_bundle(target)
+        if tmp is not None:
+            shutil.rmtree(tmp, ignore_errors=True)
     checks.append((released,
                    "the program let go: " + ("yes" if released else
                                              "no, it is still answering")))

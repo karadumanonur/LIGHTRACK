@@ -64,35 +64,60 @@ a = Analysis(
 pyz = PYZ(a.pure)
 
 MAC = sys.platform == "darwin"
+VERSION = "1.4"
 
-exe = EXE(
-    pyz, a.scripts, a.binaries, a.datas, [],
-    name="LIGHTRACK",
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=False,
-    runtime_tmpdir=None,
-    console=True,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-)
-
+# Windows gets one file, which is the whole point of handing someone a
+# program. A Mac cannot: an .app is a folder by definition, and wrapping a
+# one-file executable in one leaves a bundle whose payload is not really
+# inside it — LaunchServices starts it, the bootloader unpacks to a temporary
+# directory, and anything that goes wrong there goes wrong with no window and
+# no terminal to say so. So on a Mac the pieces are collected into the bundle
+# the way the format expects, and the disk image carries the bundle.
 if MAC:
+    exe = EXE(
+        pyz, a.scripts, [],
+        exclude_binaries=True,
+        name="LIGHTRACK",
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=False,
+        console=False,
+        disable_windowed_traceback=False,
+        argv_emulation=False,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
+    )
+    coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False,
+                   name="LIGHTRACK")
     app = BUNDLE(
-        exe,
+        coll,
         name="LIGHTRACK.app",
         icon=None,
         bundle_identifier="be.umons.lightrack",
         info_plist={
             "CFBundleName": "LIGHTRACK",
             "CFBundleDisplayName": "LIGHTRACK",
-            "CFBundleShortVersionString": "1.2",
-            "CFBundleVersion": "1.2",
+            "CFBundleShortVersionString": VERSION,
+            "CFBundleVersion": VERSION,
             "NSHighResolutionCapable": True,
             "LSMinimumSystemVersion": "11.0",
         },
+    )
+else:
+    exe = EXE(
+        pyz, a.scripts, a.binaries, a.datas, [],
+        name="LIGHTRACK",
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=False,
+        runtime_tmpdir=None,
+        console=True,
+        disable_windowed_traceback=False,
+        argv_emulation=False,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
     )

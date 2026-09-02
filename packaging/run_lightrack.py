@@ -18,6 +18,28 @@ import traceback
 
 from lightrack.app import db, home, server
 
+LOG = "lightrack.log"
+
+
+def plumbing():
+    """Give the program somewhere to speak when nobody is listening.
+
+    A Mac bundle has no terminal attached, and a windowed build can hand back
+    a `sys.stdout` of None — so the first `print` would end the program with
+    an AttributeError nobody ever sees. Everything it says goes to a file
+    beside the store instead, which is also the only evidence there will be
+    if it fails to start on someone else's machine.
+    """
+    if sys.stdout is not None and sys.stdout.isatty():
+        return None
+    try:
+        fh = open(home.store() / LOG, "a", encoding="utf-8", buffering=1)
+    except OSError:
+        return None
+    sys.stdout = fh
+    sys.stderr = fh
+    return fh
+
 
 def main() -> int:
     port, browser = 8765, True
@@ -38,12 +60,17 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    fh = plumbing()
     try:
         raise SystemExit(main())
     except SystemExit:
         raise
     except Exception:
-        traceback.print_exc()
-        print()
-        input("LIGHTRACK could not start. Press enter to close.")
+        traceback.print_exc(file=sys.stderr)
+        if fh is None:
+            # There is a terminal, so someone is there to read it.
+            try:
+                input("LIGHTRACK could not start. Press enter to close.")
+            except (EOFError, OSError):
+                pass
         raise SystemExit(1)
