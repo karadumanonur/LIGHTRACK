@@ -90,6 +90,26 @@
       </div>
     </div>
 
+    <div class="card" data-panel="rate">
+      <div class="ph">
+        <div class="pt">Rate of change</div>
+        <div class="phr">
+          <div class="legend" data-legend="rate"></div>
+          <div class="mono small" id="rate-note"></div>
+          <div class="ctl" data-ctl="rate"></div>
+        </div>
+      </div>
+      <div class="plot">
+        <div class="yl">d/dt [pm/s]</div>
+        <div class="yc" data-yc="rate"></div>
+        <div class="stretch">
+          <svg class="sv" data-zoom="rate"><g data-el="rate-body"></g><rect data-el="rate-sel" class="sel" x="0" y="0" width="0" height="0"></rect></svg>
+          <div class="xr" data-xr="rate"></div>
+          <div class="ax">time in the record [s]</div>
+        </div>
+      </div>
+    </div>
+
     <div class="trio">
       <div class="card" data-panel="psd">
         <div class="ph">
@@ -138,25 +158,6 @@
       </div>
     </div>
 
-    <div class="card" data-panel="camp">
-      <div class="ph">
-        <div class="pt" id="camp-title">SNR of every passage</div>
-        <div class="phr">
-          <div class="legend" data-legend="camp"></div>
-          <div class="read" id="camp-read"></div>
-          <div class="ctl" data-ctl="camp"></div>
-        </div>
-      </div>
-      <div class="plot">
-        <div class="yl">SNR &mdash; mean peak after baseline removal [pm]</div>
-        <div class="yc" data-yc="camp"></div>
-        <div class="stretch">
-          <svg class="sv" data-zoom="camp"><g data-el="camp-body"></g><rect data-el="camp-sel" class="sel" x="0" y="0" width="0" height="0"></rect></svg>
-          <div class="xr" data-xr="camp"></div>
-          <div class="ax" id="camp-foot"></div>
-        </div>
-      </div>
-    </div>
   </section>
 </main>
 

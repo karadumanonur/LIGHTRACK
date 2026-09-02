@@ -214,14 +214,17 @@ class App:
         is the one worth looking at: how big a train they write.
         """
         pad = int(q.get("pad", ["1"])[0])
-        keep = q.get("base", ["remove"])[0] == "keep"
+        kind = q.get("kind", ["signal"])[0]
+        keep = q.get("base", ["remove"])[0] == "keep" and kind != "rate"
         r, path = self._locate(rid)
         if path is None:
             return dict(error="record not found on disk")
         w, fs = _read(path)
         col = w[:, pad - 1]
         base = float(np.median(col))
-        if not keep:
+        if kind == "rate":
+            col = signals.rate_of_change(col, fs)
+        elif not keep:
             col = signals.remove_baseline(col, fs)
         t0 = float(q.get("t0", ["0"])[0])
         t1 = float(q.get("t1", [str(len(col) / fs)])[0])
@@ -230,8 +233,8 @@ class App:
         if b - a < 8:
             a, b = 0, len(col)
         seg = col[a:b]
-        n = 4 if keep else 2
-        unit = "nm" if keep else "pm"
+        n = 4 if keep else 2 if kind != "rate" else 0
+        unit = "nm" if keep else "pm/s" if kind == "rate" else "pm"
         bins = 900
         if len(seg) <= bins * 2:
             t = (np.arange(a, b) / fs)

@@ -24,7 +24,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from scipy.interpolate import CubicSpline
-from scipy.signal import periodogram, welch
+from scipy.signal import periodogram, savgol_filter, welch
 
 BAND = (0.5, 60.0)
 FMAX = 60.0
@@ -102,6 +102,31 @@ def remove_baseline(col: np.ndarray, fs: float, window_s: float = 1.0) -> np.nda
     x = np.asarray(col, dtype=float)
     base = pd.Series(x).rolling(n, min_periods=1).median().to_numpy()
     return (x - base) * 1000.0
+
+
+def rate_of_change(col, fs: float, smooth_s: float = 0.02):
+    """How fast the signal is moving, in picometres per second.
+
+    The counter's derivative chain works on a difference of the filtered
+    signal, and the filtering is the whole point: a plain difference of raw
+    samples is mostly noise, because differencing multiplies every frequency
+    by it and the noise lives at the top of the band. This fits a short
+    quadratic across each neighbourhood and reports its slope, which smooths
+    and differentiates in one pass rather than smoothing and then hoping.
+
+    The window is twenty milliseconds, comfortably inside an axle peak — at a
+    hundred kilometres an hour a peak is about eighty milliseconds wide — so
+    the rise and the fall of one wheel stay separate events.
+
+    What this shows that the signal does not: an axle arriving is a steep
+    climb and an axle leaving is a steep fall, and the two are symmetric on a
+    grating that is bonded and lopsided on one that is coming loose.
+    """
+    y = remove_baseline(col, fs)
+    n = max(5, int(smooth_s * fs) | 1)
+    if len(y) <= n:
+        return np.zeros(len(y), dtype=float)
+    return savgol_filter(y, n, 2, deriv=1, delta=1.0 / fs)
 
 
 def passage_peaks(col: np.ndarray, fs: float, marks_s, half_s: float = 0.12

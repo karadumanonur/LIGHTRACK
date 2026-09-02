@@ -20,7 +20,7 @@ const S = {
   engine: 'onur', folder: null, id: null, q: '',
   pads: [1], primary: 1,
   records: [], record: null,
-  raw: {}, det: {}, series: {},
+  raw: {}, det: {}, rate: {},
   view: {}, drag: null, hover: -1, big: null, busy: 0,
   mode: 'zoom', keepBase: false, markMode: false,
   axes: {}, cursor: {}, marks: {}, viewY: {},
@@ -342,7 +342,7 @@ function drawOverlay(name) {
 /* -------------------------------------------------------------- interaction */
 
 function fullOf(name) {
-  if (name === 'raw') {
+  if (name === 'raw' || name === 'rate') {
     return S.record ? [0, S.record.seconds] : [0, 1];
   }
   if (name === 'det') {
@@ -355,12 +355,12 @@ function fullOf(name) {
     return [f[0], f[f.length - 1]];
   }
   if (name === 'emd') { return S.record ? S.record.emd.span : [0, 1]; }
-  if (name === 'camp') { return [0, 1]; }
+
   return [0, 1];
 }
 
 function afterView(name) {
-  if (name === 'raw' || name === 'det') { scheduleFetch(name); }
+  if (name === 'raw' || name === 'det' || name === 'rate') { scheduleFetch(name); }
   draw();
 }
 
@@ -369,7 +369,11 @@ function scheduleFetch(name) {
   clearTimeout(fetchTimer[name]);
   fetchTimer[name] = setTimeout(() => {
     const win = view(name, fullOf(name));
-    S.pads.forEach((p) => (name === 'raw' ? loadRaw : loadTrace)(p, win));
+    S.pads.forEach((p) => {
+      if (name === 'raw') { loadRaw(p, win); }
+      else if (name === 'rate') { loadRate(p, win); }
+      else { loadTrace(p, win); }
+    });
   }, 180);
 }
 
@@ -419,7 +423,7 @@ function wire(svg, name) {
       const r = svg.getBoundingClientRect();
       S.cursor[name] = { fx: frac(ev),
         fy: r.height ? clip((ev.clientY - r.top) / r.height, 0, 1) : 0 };
-      if (name === 'camp') { hoverCampaign(frac(ev)); } else { draw(); }
+      draw();
     }
   });
   const end = () => {
@@ -449,7 +453,6 @@ function wire(svg, name) {
   svg.addEventListener('mouseleave', () => {
     if (S.drag && S.drag.name === name) { end(); }
     delete S.cursor[name];
-    if (name === 'camp' && S.hover >= 0) { S.hover = -1; }
     draw();
   });
   svg.addEventListener('click', (ev) => {
@@ -719,7 +722,9 @@ function controls(name) {
   if (name === 'raw') {
     mk('base', 'keep or remove the baseline', () => {
       S.keepBase = !S.keepBase;
-      S.pads.forEach((p) => loadRaw(p, view('raw', fullOf('raw'))));
+      S.pads.forEach((p) => {
+        loadRaw(p, view('raw', fullOf('raw')));
+      });
     });
   }
   mk('grow', 'fill the window', () => setBig(name));
@@ -921,159 +926,51 @@ function drawModes() {
     + sets[0][1].span[1].toFixed(0) + ' s';
 }
 
-function campLayout() {
-  const D = S.series[S.primary];
-  if (!D || !D.series.length) { return null; }
-  const P = D.panels.panels, B = D.panels.breaks;
-  const total = P[P.length - 1].x1 - P[0].x0;
-  const toX = (epoch) => {
-    for (let i = 0; i < P.length; i++) {
-      if (epoch <= P[i].t1 || i === P.length - 1) {
-        const f = clip((epoch - P[i].t0) / (P[i].t1 - P[i].t0), 0, 1);
-        return (P[i].x0 + (P[i].x1 - P[i].x0) * f) / total;
-      }
-    }
-    return 0;
-  };
-  const toEpoch = (x) => {
-    const u = x * total;
-    for (let i = 0; i < P.length; i++) {
-      if (u <= P[i].x1 || i === P.length - 1) {
-        const f = clip((u - P[i].x0) / (P[i].x1 - P[i].x0), 0, 1);
-        return P[i].t0 + (P[i].t1 - P[i].t0) * f;
-      }
-    }
-    return P[0].t0;
-  };
-  return { rows: D.series, P, B, total, toX, toEpoch };
-}
-
-function hoverCampaign(frac) {
-  const L = campLayout();
-  if (!L) { return; }
-  const v = view('camp', [0, 1]);
-  const x = v[0] + (v[1] - v[0]) * frac;
-  const t = L.toEpoch(x);
-  const rows = L.rows;
-  let a = 0, b = rows.length - 1;
-  while (a < b) {
-    const m = (a + b) >> 1;
-    if (rows[m].epoch < t) { a = m + 1; } else { b = m; }
-  }
-  if (a > 0 && Math.abs(rows[a - 1].epoch - t) < Math.abs(rows[a].epoch - t)) { a--; }
-  if (a !== S.hover) { S.hover = a; draw(); }
-}
-
-function drawCampaign() {
-  const svg = $('[data-zoom="camp"]');
+function drawRate() {
+  const svg = $('[data-zoom="rate"]');
   const box = fitBox(svg);
-  const host = $('[data-el="camp-body"]');
+  const host = $('[data-el="rate-body"]');
   host.innerHTML = '';
-  const L = campLayout();
-  if (!L) { $('#camp-foot').textContent = ''; return; }
-  const v = view('camp', [0, 1]);
-  const px = (x) => box.w * (x - v[0]) / (v[1] - v[0]);
+  const sets = S.pads.map((p) => S.rate[p]).filter(Boolean);
+  if (!sets.length) { return; }
+  const lim = view('rate', fullOf('rate'));
+  const ylim = yWin('rate',
+    spanOf(sets.map((d) => d.hi).concat(sets.map((d) => d.lo))));
 
-  const pads = S.pads.filter((p) => S.series[p]);
-  let top = 1e-9, bot = Infinity;
-  pads.forEach((p) => S.series[p].series.forEach((r) => {
-    if (r.mean + r.sd > top) { top = r.mean + r.sd; }
-    if (r.mean < bot) { bot = r.mean; }
-  }));
-  const lim = yWin('camp', [0, top * 1.06]);
-  const cy = (val) => box.h - box.h * (val - lim[0]) / (lim[1] - lim[0]);
-
-  L.B.forEach((b) => {
-    const a = px(b.x0 / L.total), c = px(b.x1 / L.total);
-    if (c < 0 || a > box.w) { return; }
-    const mid = (a + c) / 2;
-    host.appendChild(el('rect', { x: a.toFixed(1), y: 0,
-      width: Math.max(1, c - a).toFixed(1), height: box.h, fill: '#f7f5f0' }));
-    [0, box.h].forEach((yy) => {
-      [-3, 3].forEach((off) => {
-        host.appendChild(el('path', {
-          d: 'M' + (mid + off - 4).toFixed(1) + ' ' + (yy + 5) + 'L'
-            + (mid + off + 4).toFixed(1) + ' ' + (yy - 5),
-          stroke: '#989285', 'stroke-width': '1.2', fill: 'none',
-          'vector-effect': 'non-scaling-stroke' }));
-      });
-    });
-    host.appendChild(el('text', { x: mid.toFixed(1), y: '11',
-      'text-anchor': 'middle', fill: '#b3ac9e', 'font-size': '9',
-      'font-family': 'IBM Plex Mono, monospace' })).textContent =
-      b.days + ' days not recorded';
-  });
-
-  pads.forEach((p) => {
-    const rows = S.series[p].series;
-    let bars = '', pts = '';
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i];
-      const x = px(L.toX(r.epoch));
-      if (x < -2 || x > box.w + 2) { continue; }
-      const xs = x.toFixed(1);
-      const hi = cy(r.mean + r.sd), lo = cy(Math.max(r.mean - r.sd, lim[0]));
-      if (lo - hi > 0.7) { bars += 'M' + xs + ' ' + lo.toFixed(1) + 'L' + xs + ' ' + hi.toFixed(1); }
-      pts += 'M' + xs + ' ' + cy(r.mean).toFixed(1) + 'L' + xs + ' ' + cy(r.mean).toFixed(1);
-    }
-    host.appendChild(el('path', { d: bars, fill: 'none', stroke: COLOUR[p],
-      'stroke-width': '0.9', opacity: '0.4', 'vector-effect': 'non-scaling-stroke' }));
-    host.appendChild(el('path', { d: pts, fill: 'none', stroke: COLOUR[p],
-      'stroke-width': CAP[p] === 'square' ? '3' : '3.4',
-      'stroke-linecap': CAP[p], opacity: '0.85',
-      'vector-effect': 'non-scaling-stroke' }));
-  });
-
-  const hr = S.hover >= 0 ? L.rows[S.hover] : null;
-  if (hr) {
-    const x = px(L.toX(hr.epoch));
-    if (x >= -2 && x <= box.w + 2) {
-      host.appendChild(el('path', { d: 'M' + x.toFixed(1) + ' 0L' + x.toFixed(1)
-        + ' ' + box.h, stroke: '#a4553a', 'stroke-width': '0.8', opacity: '0.5',
-        fill: 'none', 'vector-effect': 'non-scaling-stroke' }));
-      pads.forEach((p) => {
-        const r = (S.series[p].series || [])[S.hover];
-        if (!r) { return; }
-        host.appendChild(el('path', {
-          d: 'M' + x.toFixed(1) + ' ' + cy(r.mean).toFixed(1) + 'L'
-            + x.toFixed(1) + ' ' + cy(r.mean).toFixed(1),
-          fill: 'none', stroke: COLOUR[p], 'stroke-width': '8',
-          'stroke-linecap': 'round', 'vector-effect': 'non-scaling-stroke' }));
-      });
-    }
+  const zero = box.h - box.h * (0 - ylim[0]) / (ylim[1] - ylim[0]);
+  if (zero > 0 && zero < box.h) {
+    host.appendChild(el('path', {
+      d: 'M0 ' + zero.toFixed(1) + 'L' + box.w + ' ' + zero.toFixed(1),
+      stroke: '#b3ac9e', 'stroke-width': '1', fill: 'none' }));
   }
 
-  axes('camp', box, [L.toEpoch(v[0]), L.toEpoch(v[1])], lim,
-       { date: true, fy: (val) => val.toFixed(1) + ' pm' });
-  ticks($('[data-yc="camp"]'), lim, 5, (v2) => fmt(v2));
-  const xr = $('[data-xr="camp"]');
-  xr.innerHTML = '';
-  for (let i = 0; i <= 6; i++) {
-    const t = L.toEpoch(v[0] + (v[1] - v[0]) * i / 6);
-    const d = document.createElement('div');
-    d.textContent = new Date(t * 1000).toLocaleDateString('en-GB',
-      { day: '2-digit', month: 'short' });
-    xr.appendChild(d);
-  }
-  legend('camp', pads);
-  $('#camp-title').textContent = 'SNR of every passage';
-  $('#camp-foot').textContent = L.rows.length + ' passages  ·  '
-    + 'wheel or drag to zoom, shift-drag to pan, double-click for all';
-  const read = $('#camp-read');
-  read.innerHTML = '';
-  const items = hr
-    ? [['record', hr.file], ['axles', hr.axles === null ? '—' : String(hr.axles)],
-       ['km/h', hr.speed_kmh == null ? '—' : hr.speed_kmh.toFixed(0)]].concat(
-       pads.map((p) => {
-         const r = (S.series[p].series || [])[S.hover];
-         return ['PAD ' + p, r ? fmt(r.mean) + ' ± ' + fmt(r.sd) : '—'];
-       }))
-    : [['', 'move across to read a passage, click to open it']];
-  items.forEach(([k, val]) => {
-    const d = document.createElement('div');
-    d.innerHTML = '<span>' + k + '</span><b>' + val + '</b>';
-    read.appendChild(d);
+  S.pads.forEach((p) => {
+    const d = S.rate[p];
+    if (!d) { return; }
+    if (d.mode === 'points') {
+      host.appendChild(el('path', { d: line(d.t, d.hi, box, lim, ylim, {}),
+        fill: 'none', stroke: COLOUR[p], 'stroke-width': '1.2',
+        'stroke-dasharray': DASH[p],
+        'vector-effect': 'non-scaling-stroke' }));
+    } else {
+      host.appendChild(el('path', {
+        d: bandPath(d.t, d.lo, d.hi, box, lim, ylim, 0, d.t.length - 1),
+        fill: COLOUR[p], opacity: S.pads.length > 1 ? '0.45' : '0.8' }));
+    }
   });
+
+  axes('rate', box, lim, ylim, {
+    fx: (v) => v.toFixed(3) + ' s',
+    fy: (v) => v.toFixed(0) + ' pm/s' });
+  ticks($('[data-yc="rate"]'), ylim, 3, (v) => v.toFixed(0));
+  ticks($('[data-xr="rate"]'), lim, 6,
+        (v) => v.toFixed(lim[1] - lim[0] < 6 ? 2 : 0));
+  legend('rate', S.pads);
+  const d0 = S.rate[S.primary];
+  $('#rate-note').textContent = d0
+    ? (d0.mode === 'points' ? 'every sample' : 'min and max per bin')
+      + '  ·  20 ms slope'
+    : '';
 }
 
 function drawHead() {
@@ -1134,13 +1031,13 @@ function draw() {
         drawHead();
         drawRaw();
         drawDetection();
+        drawRate();
         drawSpectrum('psd', 1e-6);
         drawSpectrum('fft', 1e-3);
         drawModes();
       }
-      drawCampaign();
-      ['raw', 'det', 'psd', 'fft', 'emd', 'camp'].forEach(sel);
-      ['raw', 'det', 'psd', 'fft', 'emd', 'camp'].forEach(drawOverlay);
+      ['raw', 'det', 'rate', 'psd', 'fft', 'emd'].forEach(sel);
+      ['raw', 'det', 'rate', 'psd', 'fft', 'emd'].forEach(drawOverlay);
     }
   }, 0);
 }
@@ -1178,10 +1075,12 @@ async function loadSpectra(pad) {
   draw();
 }
 
-async function loadSeries(pad) {
-  const j = await api('/api/series?engine=' + S.engine + '&pad=' + pad
-    + '&folder=' + encodeURIComponent(S.folder || ''));
-  if (!j.error) { S.series[pad] = j; draw(); }
+async function loadRate(pad, win) {
+  if (!S.record) { return; }
+  const w = win || [0, S.record.seconds];
+  const j = await api('/api/raw/' + S.id + '?pad=' + pad + '&kind=rate'
+    + '&t0=' + w[0] + '&t1=' + w[1]);
+  if (!j.error) { S.rate[pad] = j; draw(); }
 }
 
 async function loadRecords() {
@@ -1206,12 +1105,14 @@ async function selectRecord(id) {
   S.record = j;
   S.record.pads = {};
   S.raw = {}; S.det = {};
-  ['raw', 'det', 'psd', 'fft', 'emd'].forEach((k) => {
+  ['raw', 'det', 'rate', 'psd', 'fft', 'emd'].forEach((k) => {
     delete S.view[k];
     delete S.viewY[k];
   });
   draw();
-  S.pads.forEach((p) => { loadRaw(p, null); loadTrace(p, null); loadSpectra(p); });
+  S.pads.forEach((p) => {
+    loadRaw(p, null); loadRate(p, null); loadTrace(p, null); loadSpectra(p);
+  });
 }
 
 function togglePad(p) {
@@ -1219,13 +1120,13 @@ function togglePad(p) {
   if (i >= 0) {
     if (S.pads.length === 1) { return; }
     S.pads.splice(i, 1);
-    delete S.raw[p]; delete S.det[p]; delete S.series[p];
+    delete S.raw[p]; delete S.det[p]; delete S.rate[p];
     if (S.record && S.record.pads) { delete S.record.pads[p]; }
   } else {
     S.pads.push(p);
     S.pads.sort((a, b) => a - b);
-    loadSeries(p);
     loadRaw(p, view('raw', fullOf('raw')));
+    loadRate(p, view('rate', fullOf('rate')));
     loadTrace(p, view('det', fullOf('det')));
     loadSpectra(p);
   }
@@ -1385,7 +1286,6 @@ async function boot(keep) {
     b.onclick = () => {
       S.engine = e.id;
       $$('#engines button').forEach((x) => x.classList.toggle('on', x === b));
-      S.pads.forEach(loadSeries);
       loadRecords();
       if (S.id) { selectRecord(S.id); }
     };
@@ -1401,24 +1301,16 @@ async function boot(keep) {
     b.onclick = () => {
       S.folder = f.folder;
       $$('#folders button').forEach((x) => x.classList.toggle('on', x === b));
-      S.pads.forEach(loadSeries);
       loadRecords();
     };
     fh.appendChild(b);
   });
-  if (keep) { S.pads.forEach(loadSeries); await loadRecords(); return; }
+  if (keep) { await loadRecords(); return; }
 
   drawPads();
-  ['raw', 'det', 'psd', 'fft', 'emd', 'camp'].forEach((k) => {
+  ['raw', 'det', 'rate', 'psd', 'fft', 'emd'].forEach((k) => {
     wire($('[data-zoom="' + k + '"]'), k);
     controls(k);
-  });
-  $('[data-zoom="camp"]').addEventListener('click', () => {
-    if (S.markMode) { return; }
-    if (S.hover >= 0) {
-      const L = campLayout();
-      if (L && L.rows[S.hover]) { selectRecord(L.rows[S.hover].id); }
-    }
   });
   $$('#work .ph').forEach((h) => {
     h.ondblclick = (ev) => {
@@ -1475,7 +1367,6 @@ async function boot(keep) {
   });
   let rz = null;
   window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(draw, 120); });
-  S.pads.forEach(loadSeries);
   await loadRecords();
   poll();
 }

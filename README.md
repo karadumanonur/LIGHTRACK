@@ -84,21 +84,30 @@ What is in the window:
 | the sensor row | click a grating to ADD it to every chart, click again to take it away |
 | raw signal | with the baseline taken out so the gratings sit on top of each other; one button puts it back |
 | axle count | what the engine looks at, its thresholds, and every mark it made |
+| rate of change | how fast the signal is moving, in picometres per second |
 | PSD, Fourier, EMD | of the raw signal |
-| the wide chart | the SNR of every passage in the store |
 
 **Sensors add up rather than replace.** Every chart draws each selected grating
 in its own colour, so PAD 9 beside PAD 1 beside PAD 11 is one picture and not
 three visits. That is the whole reason to have twelve of them: a sensor is only
 loud or quiet compared to the one next to it on the same train.
 
-**SNR** on the wide chart is the mean height of the axle peaks after the
-baseline is removed, in picometres, and the whisker is how much that height
-varies from axle to axle inside the one passage. The counting head says where
-the axles are and every sensor is then read at those same moments, so twelve
-numbers describe one train's response on twelve gratings. The mean is how much
-signal the grating still returns; the spread is how evenly it returns it, and a
-bond that is failing shows in the spread before it shows in the mean.
+**The rate of change** sits under the axle count and over the same window,
+because that is the only way to read the two together. An axle arriving is a
+steep climb and an axle leaving is a steep fall, and the derivative crosses
+zero exactly where the signal peaks — which is what the counter's second chain
+looks for, and why a peak the hysteresis chain is too timid to arm on can
+still be found. It is a twenty-millisecond slope rather than a difference of
+neighbouring samples: differencing multiplies every frequency by itself and
+the noise lives at the top of the band, so a raw difference is mostly noise.
+Twenty milliseconds sits comfortably inside an axle peak, which is about
+eighty milliseconds wide at a hundred kilometres an hour, so the rise and the
+fall of one wheel stay separate events.
+
+**The SNR of every passage** is no longer in the window; it is its own page,
+built by `analysis/out/snr.html`, because it answers a question about the whole
+campaign rather than about the record in front of you. It carries its own data
+and needs no server.
 
 **Every chart carries the same controls**, in the strip at the right of its
 title: save it as a picture, drag-to-zoom or drag-to-pan, in, out, show
@@ -111,17 +120,15 @@ value under it is written out in both directions — `89.342 s   54.4 pm`,
 `29.69 Hz   0.108`, `29 May, 05:05`. Turn marking on and a click leaves that
 reading pinned to the chart; click a mark to take it off, or clear them all.
 
-**Zooming asks for more, not bigger.** The raw signal and the axle count fetch
-that window again from the server, so going in shows MORE signal, down to every
-individual sample.
+**Zooming asks for more, not bigger.** The raw signal, the axle count and the
+rate of change fetch that window again from the server, so going in shows MORE
+signal, down to every individual sample.
 
 **One panel at a time.** The `⤢` button fills the window with a panel, and so
 does double-clicking its title bar; the same gesture or Escape brings the rest
 back.
 
-**Getting about.** Up and down arrows step through the records. A point on the
-wide chart reads out under the title as you pass over it, and clicking it opens
-that passage.
+**Getting about.** Up and down arrows step through the records.
 
 Onur's engine is read from the working tree, so the window shows the counter as
 it stands right now, uncommitted edits included. Asude's is read from the branch
