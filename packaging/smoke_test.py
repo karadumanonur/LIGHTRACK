@@ -22,10 +22,12 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -91,7 +93,16 @@ def stop(proc) -> bool:
 
 def main() -> int:
     binary, folder = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve()
-    proc = subprocess.Popen([str(binary), "--no-browser", "--port", str(PORT)],
+
+    # The program keeps its store beside itself, so running this twice in the
+    # same place would measure a store that already holds another run's
+    # records. A copy in a fresh directory is also the honest test: what a
+    # stranger gets is a program with no store at all.
+    tmp = Path(tempfile.mkdtemp(prefix="lightrack-smoke-"))
+    here = tmp / binary.name
+    shutil.copy2(binary, here)
+
+    proc = subprocess.Popen([str(here), "--no-browser", "--port", str(PORT)],
                             start_new_session=(os.name == "posix"))
     checks: list[tuple[bool, str]] = []
     try:
@@ -114,7 +125,9 @@ def main() -> int:
         rows = get("/api/records")
         rows = rows.get("records", rows)
         checks.append((len(rows) == 1, f"one record in the store: {len(rows)}"))
-        rid = rows[0]["id"]
+        want = sorted(p.name for p in folder.glob("*.txt"))[0]
+        mine = [r for r in rows if r["file"] == want] or rows
+        rid = mine[0]["id"]
         checks.append((rows[0]["axles"] == AXLES,
                        f"stored count is {AXLES}: {rows[0]['axles']}"))
 
@@ -135,6 +148,7 @@ def main() -> int:
                        f"raw comes back in pm: {raw.get('unit')}, {len(raw.get('t', []))} points"))
     finally:
         released = stop(proc)
+        shutil.rmtree(tmp, ignore_errors=True)
     checks.append((released,
                    "the program let go: " + ("yes" if released else
                                              "no, it is still answering")))

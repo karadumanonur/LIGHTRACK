@@ -53,7 +53,11 @@ a = Analysis(
     runtime_hooks=[],
     excludes=["tkinter", "PyQt5", "PyQt6", "PySide2", "PySide6",
               "IPython", "notebook", "jupyter", "pytest", "sphinx",
-              "cv2", "sklearn"],
+              "cv2", "sklearn",
+              # pandas offers a numba engine nobody here asks for, and the
+              # hook collects its LLVM backend anyway: 115 MB of compiler in
+              # a program that never compiles anything.
+              "numba", "llvmlite", "plotly"],
     noarchive=False,
 )
 
