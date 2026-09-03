@@ -129,7 +129,35 @@ def rate_of_change(col, fs: float, smooth_s: float = 0.02):
     return savgol_filter(y, n, 2, deriv=1, delta=1.0 / fs)
 
 
-def passage_peaks(col: np.ndarray, fs: float, marks_s, half_s: float = 0.12
+def read_window(marks_s, fs: float, cap_s: float = 0.12) -> float:
+    """How far either side of an axle its own peak can be looked for.
+
+    A fixed window cannot work. The axles of one bogie are a wheelbase apart
+    — call it 2.84 m — so at 90 km/h they pass 0.117 s apart and at 130 km/h
+    0.079 s apart, while the peak itself narrows in exactly the same
+    proportion. Reach further than half that spacing and a maximum taken
+    around one axle is really its neighbour's: the two report the same, taller
+    number, the mean comes out too high and the axle-to-axle spread, which is
+    the whole point of the figure, comes out too small.
+
+    The spacing is read from the marks rather than from a speed, because the
+    marks are what was actually found: it costs no extra argument, it follows
+    a train that slows down, and it narrows by itself on a three-axle bogie
+    where the axles sit closer than the usual wheelbase.
+    """
+    if len(marks_s) < 3:
+        return cap_s
+    gaps = np.diff(np.sort(np.asarray(marks_s, dtype=float)))
+    gaps = gaps[gaps > 0]
+    if not len(gaps):
+        return cap_s
+    # The short gaps are the ones inside a bogie; the long ones are couplings
+    # and whole wagons, and would put the window back where it was.
+    bogie = float(np.percentile(gaps, 20))
+    return float(min(cap_s, max(0.012, 0.45 * bogie)))
+
+
+def passage_peaks(col: np.ndarray, fs: float, marks_s, half_s: float | None = None
                   ) -> tuple[float, float]:
     """How tall this sensor's axle peaks are, and how much they vary.
 
@@ -138,6 +166,9 @@ def passage_peaks(col: np.ndarray, fs: float, marks_s, half_s: float = 0.12
     signal around each axle the engine marked, on THIS sensor. Every sensor is
     therefore measured on the same axles of the same train at the same moment,
     which is what makes twelve numbers comparable at all.
+
+    The window is read from the axle spacing rather than fixed; `read_window`
+    says why.
 
     Only the positive excursion counts. An axle presses the rail down and the
     grating stretches; the number wanted is how far above the baseline that
@@ -157,6 +188,8 @@ def passage_peaks(col: np.ndarray, fs: float, marks_s, half_s: float = 0.12
     """
     y = remove_baseline(col, fs)
     if len(marks_s):
+        if half_s is None:
+            half_s = read_window(marks_s, fs)
         half = max(2, int(half_s * fs))
         vals = []
         for t in marks_s:

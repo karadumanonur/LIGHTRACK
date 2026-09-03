@@ -107,7 +107,11 @@ def measure(args) -> None:
                 c = dict(axles=0, trains=0, speed_kmh=None, first_s=0.0,
                          last_s=0.0, detail="")
             db.put_count(con, r["id"], count_pad, args.engine, c)
-            marks = c.get("marks_s") or []
+            # A count of nothing means no passage to measure a response to,
+            # even when the engine left marks behind it did not confirm. One
+            # record in eighteen hundred is like this, and without the guard
+            # it draws a full-sized point among the empty recordings.
+            marks = (c.get("marks_s") or []) if c.get("axles") else []
             power = {p: signals.passage_peaks(w[:, p - 1], fs, marks)
                      for p in power_pads}
             db.put_power(con, r["id"], power)
