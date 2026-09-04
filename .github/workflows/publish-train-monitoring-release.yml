@@ -36,16 +36,8 @@ jobs:
           unzip -t release-assets/apple-silicon/Train_Monitoring_macOS_apple-silicon.zip
           unzip -t release-assets/intel/Train_Monitoring_macOS_intel.zip
 
-      - name: Publish Train Monitoring v0.1.5
+      - name: Attach verified packages to the prepared v0.1.5 draft
         shell: bash
         run: |
-          cat > release-notes.md <<'NOTES'
-          Opens one browser tab at http://localhost instead of opening duplicate tabs. Applies local-only server settings before startup so the desktop app does not listen on the local network.
-
-          Includes Windows, macOS Apple Silicon and macOS Intel applications. Retains the macOS plotting fix and recording-memory safeguards. Raw FBG recordings are not included; select your local raw_data folder at startup.
-
-          Close the old app and extract the new package before launching. On Windows, keep TrainMonitoring.exe and its _internal folder together.
-          NOTES
-          gh release create v0.1.5 --repo asude48/LIGHTRACK --target "$BUILD_COMMIT" --title "Train Monitoring v0.1.5" --notes-file release-notes.md --draft
+          test "$(gh release view v0.1.5 --repo asude48/LIGHTRACK --json isDraft --jq .isDraft)" = true
           gh release upload v0.1.5 --repo asude48/LIGHTRACK release-assets/windows/Train_Monitoring_Windows.zip release-assets/apple-silicon/Train_Monitoring_macOS_apple-silicon.zip release-assets/intel/Train_Monitoring_macOS_intel.zip
-          gh release edit v0.1.5 --repo asude48/LIGHTRACK --draft=false --latest
