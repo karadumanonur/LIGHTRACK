@@ -173,7 +173,19 @@ def main() -> None:
     streamlit_config.set_option("global.developmentMode", False)
 
     port = free_port()
-    url = f"http://127.0.0.1:{port}"
+    # Apply launch options before bootstrap.run starts the server.
+    # The same options also apply when configuration files are reloaded.
+    options = {
+        "server.address": "127.0.0.1",
+        "server.port": port,
+        "server.headless": True,
+        "browser.serverAddress": "localhost",
+        "browser.serverPort": port,
+        "browser.gatherUsageStats": False,
+        "global.developmentMode": False,
+    }
+    bootstrap.load_config_options(options)
+    url = f"http://localhost:{port}"
     print("Train Monitoring — FBG Analysis")
     print(f"Dataset: {data_root}")
     print(f"Address: {url}")
@@ -184,13 +196,7 @@ def main() -> None:
         str(dashboard),
         False,
         [],
-        {
-            "server.address": "127.0.0.1",
-            "server.port": port,
-            "server.headless": True,
-            "browser.gatherUsageStats": False,
-            "global.developmentMode": False,
-        },
+        options,
     )
 
 
