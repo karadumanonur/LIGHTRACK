@@ -12,19 +12,40 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       GH_TOKEN: ${{ github.token }}
+      BUILD_COMMIT: 0f09c94a2a8f8c47384fdf5ebecb025915710b09
     steps:
+      - name: Require successful builds of the release commit
+        shell: bash
+        run: |
+          for run in 33857566265 33857566205; do
+            gh run watch "$run" --repo asude48/LIGHTRACK --exit-status --interval 30
+            test "$(gh run view "$run" --repo asude48/LIGHTRACK --json headSha --jq .headSha)" = "$BUILD_COMMIT"
+          done
+
       - name: Download verified packages
         shell: bash
         run: |
           mkdir -p release-assets/windows release-assets/apple-silicon release-assets/intel
-          gh run download 33604480530 --repo asude48/LIGHTRACK --name Train-Monitoring-Windows --dir release-assets/windows
-          gh run download 33604480449 --repo asude48/LIGHTRACK --name Train-Monitoring-macOS-apple-silicon --dir release-assets/apple-silicon
-          gh run download 33604480449 --repo asude48/LIGHTRACK --name Train-Monitoring-macOS-intel --dir release-assets/intel
+          gh run download 33857566265 --repo asude48/LIGHTRACK --name Train-Monitoring-Windows --dir release-assets/windows
+          gh run download 33857566205 --repo asude48/LIGHTRACK --name Train-Monitoring-macOS-apple-silicon --dir release-assets/apple-silicon
+          gh run download 33857566205 --repo asude48/LIGHTRACK --name Train-Monitoring-macOS-intel --dir release-assets/intel
+          unzip -t release-assets/windows/Train_Monitoring_Windows.zip
+          unzip -t release-assets/apple-silicon/Train_Monitoring_macOS_apple-silicon.zip
+          unzip -t release-assets/intel/Train_Monitoring_macOS_intel.zip
 
-      - name: Publish Train Monitoring v0.1.4
+      - name: Publish Train Monitoring v0.1.5
         shell: bash
         run: |
-          gh release create v0.1.4 --repo asude48/LIGHTRACK --target Asude-Branch --title "Train Monitoring v0.1.4" --notes "Fixes macOS plot rendering by using Matplotlib's non-interactive Agg backend in the Streamlit worker thread. Retains the recording-memory safeguards introduced in v0.1.3. Includes refreshed Windows, macOS Apple Silicon and macOS Intel applications. Raw FBG recordings are not included; select the local raw_data folder at startup. Research prototype: validate before operational use."
-          gh release upload v0.1.4 --repo asude48/LIGHTRACK release-assets/windows/Train_Monitoring_Windows.zip release-assets/apple-silicon/Train_Monitoring_macOS_apple-silicon.zip release-assets/intel/Train_Monitoring_macOS_intel.zip --clobber
+          cat > release-notes.md <<'NOTES'
+          Opens one browser tab at http://localhost instead of opening duplicate tabs. Applies local-only server settings before startup so the desktop app does not listen on the local network.
+
+          Includes Windows, macOS Apple Silicon and macOS Intel applications. Retains the macOS plotting fix and recording-memory safeguards. Raw FBG recordings are not included; select your local raw_data folder at startup.
+
+          Close the old app and extract the new package before launching. On Windows, keep TrainMonitoring.exe and its _internal folder together.
+          NOTES
+          gh release create v0.1.5 --repo asude48/LIGHTRACK --target "$BUILD_COMMIT" --title "Train Monitoring v0.1.5" --notes-file release-notes.md --draft
+          gh release upload v0.1.5 --repo asude48/LIGHTRACK release-assets/windows/Train_Monitoring_Windows.zip release-assets/apple-silicon/Train_Monitoring_macOS_apple-silicon.zip release-assets/intel/Train_Monitoring_macOS_intel.zip
+          gh release edit v0.1.5 --repo asude48/LIGHTRACK --draft=false --latest
