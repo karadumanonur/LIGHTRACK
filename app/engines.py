@@ -146,13 +146,30 @@ def _onur_trace(path: Path, pad: int) -> dict:
         n_d=int(sum(t.n_d for t in trains)))
 
 
+def _pad_column(path: Path, pad: int) -> int:
+    """Which wavelength column of this file holds that PAD.
+
+    Her loader takes a column by position, and the position of a PAD is not
+    the same in every delivery: `detected` and `poc1` are written from the
+    long wavelength down, `Valid_data_new` from the short wavelength up.
+    Passing the PAD number straight through reads PAD 12 where PAD 1 was
+    meant — a different grating on a different rail — and the window then
+    shows her algorithm failing at something it was never given.
+    """
+    from analysis.config import CONFIG                          # noqa: E402
+    from analysis.reader import sniff_column_order, sniff_decimal  # noqa: E402
+    order = sniff_column_order(path, sniff_decimal(path))
+    down = CONFIG["channel_to_pad"]["pad_of_channel"].index(pad)
+    return down + 1 if order == "desc" else 12 - down
+
+
 def _asude_trace(path: Path, pad: int) -> dict:
     _path("asude")
     import matplotlib                                           # noqa: E402
     matplotlib.use("Agg")
     import sensor12_peak_tracker as tracker                     # noqa: E402
 
-    time_s, raw_nm = tracker.load_fbg_file(path, pad)
+    time_s, raw_nm = tracker.load_fbg_file(path, _pad_column(path, pad))
     fs = tracker.sampling_rate(time_s)
     y = tracker.butterworth_process(raw_nm, fs, 0.5, 40.0)
     idx, _, _ = tracker.detect_peaks(y, fs, "positive", 8.0, None, 0.06, 0.04)
