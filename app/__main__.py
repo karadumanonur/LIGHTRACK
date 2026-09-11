@@ -112,7 +112,8 @@ def measure(args) -> None:
             # record in eighteen hundred is like this, and without the guard
             # it draws a full-sized point among the empty recordings.
             marks = (c.get("marks_s") or []) if c.get("axles") else []
-            power = {p: signals.passage_peaks(w[:, p - 1], fs, marks)
+            power = {p: signals.passage_peaks(w[:, p - 1], fs, marks,
+                                              speed_kmh=c.get("speed_kmh"))
                      for p in power_pads}
             db.put_power(con, r["id"], power)
             if n % 50 == 0:

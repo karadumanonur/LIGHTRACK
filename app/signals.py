@@ -24,7 +24,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from scipy.interpolate import CubicSpline
-from scipy.signal import periodogram, savgol_filter, welch
+from scipy.signal import (firwin, lfilter, lfilter_zi, periodogram,
+                          savgol_filter, welch)
 
 BAND = (0.5, 60.0)
 FMAX = 60.0
@@ -157,8 +158,39 @@ def read_window(marks_s, fs: float, cap_s: float = 0.12) -> float:
     return float(min(cap_s, max(0.012, 0.45 * bogie)))
 
 
-def passage_peaks(col: np.ndarray, fs: float, marks_s, half_s: float | None = None
-                  ) -> tuple[float, float]:
+def detected_signal(col: np.ndarray, fs: float, speed_kmh: float | None):
+    """The signal the axles were actually found on.
+
+    The counter does not look at the raw wavelength. It takes a trailing
+    median out, scales to picometres and runs a low-pass whose cutoff follows
+    the speed, and it is on THAT curve that a peak crosses a threshold and
+    becomes an axle. The detection panel draws the same curve with the marks
+    sitting on it.
+
+    So a peak height read anywhere else is a height of something that was
+    never detected. Measuring the unfiltered signal instead reports about a
+    third more than the peak the mark sits on, and the number beside the chart
+    then disagrees with the chart.
+
+    The filter is causal, which delays it by half its length; the marks come
+    from the same delayed curve, so a mark still lands where its peak is and
+    nothing has to be shifted back.
+
+    With no speed there is nothing to set the cutoff from and the baseline
+    alone is returned.
+    """
+    y = remove_baseline(col, fs)
+    if not speed_kmh:
+        return y
+    from analysis.config import CONFIG                            # noqa: E402
+    from analysis.counter import lowpass_cutoff_hz                # noqa: E402
+    taps = int(CONFIG["realtime"]["fir_taps"])
+    b = firwin(taps, min(lowpass_cutoff_hz(speed_kmh), fs / 2 * 0.9), fs=fs)
+    return lfilter(b, 1.0, y, zi=lfilter_zi(b, 1.0) * 0.0)[0]
+
+
+def passage_peaks(col: np.ndarray, fs: float, marks_s, half_s: float | None = None,
+                  speed_kmh: float | None = None) -> tuple[float, float]:
     """How tall this sensor's axle peaks are, and how much they vary.
 
     The axles are already located — the counting engine found them — so this
@@ -167,8 +199,9 @@ def passage_peaks(col: np.ndarray, fs: float, marks_s, half_s: float | None = No
     therefore measured on the same axles of the same train at the same moment,
     which is what makes twelve numbers comparable at all.
 
-    The window is read from the axle spacing rather than fixed; `read_window`
-    says why.
+    The height is read on the curve the counter detected the axle on, not on
+    the raw signal; `detected_signal` says why. The window is read from the
+    axle spacing rather than fixed; `read_window` says why.
 
     Only the positive excursion counts. An axle presses the rail down and the
     grating stretches; the number wanted is how far above the baseline that
@@ -186,7 +219,7 @@ def passage_peaks(col: np.ndarray, fs: float, marks_s, half_s: float | None = No
     on the same axis as a train, which invites the two to be compared when they
     are not the same measurement.
     """
-    y = remove_baseline(col, fs)
+    y = detected_signal(col, fs, speed_kmh)
     if len(marks_s):
         if half_s is None:
             half_s = read_window(marks_s, fs)
