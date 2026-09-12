@@ -46,8 +46,24 @@ class Train:
     last_index: int
 
 
+def safety_for(pad: int | None) -> dict | None:
+    """The settings this grating is counted with, if it has its own."""
+    if pad is None:
+        return None
+    return CONFIG.get("safety_by_pad", {}).get(str(pad))
+
+
 @dataclass
 class StreamingCounter:
+
+    # Settings for a grating that is not the one the thresholds were built on.
+    # PAD 1 writes about 95 pm on a passing train and PAD 10 about 17, and the
+    # thresholds are fractions of a level taken from recent peaks, so they
+    # follow the sensor down: structure between bogies that is a small
+    # fraction of the axle peak on a well-bonded grating becomes a large one
+    # on a loose one, and starts being counted. Overriding here rather than
+    # editing the shared numbers keeps PAD 1 at what it scores.
+    safety: dict | None = None
 
     v0_kmh: float = RT["initial_speed_kmh"]
     block: int = RT["block_samples"]
@@ -88,6 +104,7 @@ class StreamingCounter:
     _v: float = 0.0
 
     def __post_init__(self) -> None:
+        self._saf = SAF if not self.safety else {**SAF, **self.safety}
 
         self._peaks = deque(maxlen=int(self.n_peaks))
         self._v = float(self.v0_kmh)
@@ -163,7 +180,7 @@ class StreamingCounter:
         idx = sorted(self._x_idx + self._d_idx)
         if not idx:
             return 0
-        tol = SAF["same_axle_tolerance_s"] * FS
+        tol = self._saf["same_axle_tolerance_s"] * FS
         n, last = 1, idx[0]
         for i in idx[1:]:
             if i - last > tol:
@@ -187,7 +204,7 @@ class StreamingCounter:
         of five of them.
         """
         n = max(self._n_x, self._n_d)
-        if n < SAF["same_axle_min_axles"]:
+        if n < self._saf["same_axle_min_axles"]:
             return n
         return max(n, self._distinct())
 
@@ -204,7 +221,7 @@ class StreamingCounter:
 
         if len(self._peaks) >= 3:
             self._levels_seen.append(
-                float(np.percentile(self._peaks, SAF["x_peak_percentile"])))
+                float(np.percentile(self._peaks, self._saf["x_peak_percentile"])))
         grace = RT["edge_grace_s"] * FS
         clipped = self._first_axle is not None and (
             self._first_axle < grace or (self._n - self._last_axle) < grace)
@@ -246,7 +263,7 @@ class StreamingCounter:
         """
         if not self._armed or self._first_axle is None:
             return
-        t_min = SAF["x_min_duration_fraction"] * samples_per_peak(self._v)
+        t_min = self._saf["x_min_duration_fraction"] * samples_per_peak(self._v)
         if (self._n - self._i_rise) < t_min:
             return
         if self._n - self._run_max_i < 2:
@@ -299,7 +316,7 @@ class StreamingCounter:
     def _level(self) -> float:
 
         if len(self._peaks) >= 3:
-            return float(np.percentile(self._peaks, SAF["x_peak_percentile"]))
+            return float(np.percentile(self._peaks, self._saf["x_peak_percentile"]))
 
         floor = (float(np.median(self._levels_seen)) if self._levels_seen
                  else float(CONFIG["detect"]["absolute_gate_pm"]))
@@ -310,7 +327,7 @@ class StreamingCounter:
     def _gate_pm(self) -> float:
 
         if self._levels_seen:
-            return SAF["peak_rise_fraction"] * float(np.median(self._levels_seen))
+            return self._saf["peak_rise_fraction"] * float(np.median(self._levels_seen))
         return float(CONFIG["detect"]["absolute_gate_pm"])
 
     def _expect_partner(self, index: int, height: float, gap: int | None) -> None:
@@ -340,8 +357,8 @@ class StreamingCounter:
         clipped by the start of a record it would be predicting from a number
         nothing has measured yet.
         """
-        frac = SAF["partner_height_fraction"]
-        win = SAF["partner_window_fraction"]
+        frac = self._saf["partner_height_fraction"]
+        win = self._saf["partner_window_fraction"]
         d = RT["wheelbase_m"] / max(self._v, 1.0) * 3.6 * FS
         if gap is not None and abs(gap - d) < win * d:
             if (RT["coupling_m"] <= 0.0
@@ -349,8 +366,8 @@ class StreamingCounter:
                 self._expect_from = self._expect_to = -1
                 return
             d = RT["coupling_m"] / max(self._v, 1.0) * 3.6 * FS
-            frac = SAF["coupling_height_fraction"]
-        floor = (SAF["partner_noise_sigmas"] * float(np.median(self._noise))
+            frac = self._saf["coupling_height_fraction"]
+        floor = (self._saf["partner_noise_sigmas"] * float(np.median(self._noise))
                  if self._noise else 0.0)
         self._expect_h = max(frac * height, floor)
         self._expect_from = int(index + (1 - win) * d)
@@ -410,7 +427,7 @@ class StreamingCounter:
         seen so far, because a running maximum only ever ratchets upward.
         """
         recent = max(self._peaks) if self._peaks else amplitude
-        if amplitude >= SAF["x_peak_floor_fraction"] * recent:
+        if amplitude >= self._saf["x_peak_floor_fraction"] * recent:
             self._peaks.append(amplitude)
 
     def _close_d_segment(self, need: int) -> None:
@@ -445,15 +462,15 @@ class StreamingCounter:
             noise = float(np.median(self._noise)) if self._noise else 0.0
             self._unlock_level(self._n, noise)
             lv = self._level()
-            thr_rise = SAF["peak_rise_fraction"] * lv
-            thr_fall = SAF["peak_fall_fraction"] * lv
-            t_min = SAF["x_min_duration_fraction"] * samples_per_peak(self._v)
+            thr_rise = self._saf["peak_rise_fraction"] * lv
+            thr_fall = self._saf["peak_fall_fraction"] * lv
+            t_min = self._saf["x_min_duration_fraction"] * samples_per_peak(self._v)
 
-            d_cut = SAF["d_lower_cut_fraction"] * lv
+            d_cut = self._saf["d_lower_cut_fraction"] * lv
             if noise > 0.0:
                 d_cut = max(d_cut, RT["d_noise_sigmas"] * noise)
-            need = max(SAF["d_min_points"],
-                       int(round(SAF["d_points_per_peak_fraction"]
+            need = max(self._saf["d_min_points"],
+                       int(round(self._saf["d_points_per_peak_fraction"]
                                  * samples_per_peak(self._v))))
 
             for k, v in enumerate(y):

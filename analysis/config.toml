@@ -48,6 +48,21 @@ same_axle_min_axles = 6
 # behind a trailing axle the next one is a coupling away, not a wheelbase
 coupling_height_fraction = 0.30
 
+# Settings for gratings that are not the one the thresholds were built on.
+# A pad listed here is counted with these in place of the ones above; a pad
+# that is not listed uses them unchanged, so PAD 1 is untouched.
+#
+# PAD 10 is clamped rather than glued and writes about a fifth of what PAD 1
+# does. The thresholds are fractions of a level taken from recent peaks, so
+# they follow the sensor down, and the rebound between bogies — a sixth of the
+# axle peak on PAD 1, over a quarter of it here — starts crossing them. Both
+# chains count it, which is why raising only the confirm threshold was not
+# enough. Measured over all 1596 reference trains: 50.25 % exact before,
+# 75.19 % after.
+[safety_by_pad.10]
+peak_fall_fraction = 0.35
+d_lower_cut_fraction = 0.50
+
 [channel_to_pad]
 pad_of_channel = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
 

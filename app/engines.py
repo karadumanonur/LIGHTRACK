@@ -90,7 +90,7 @@ def _onur_trace(path: Path, pad: int) -> dict:
     _path("onur")
     from analysis import StreamingCounter                       # noqa: E402
     from analysis.config import CONFIG                          # noqa: E402
-    from analysis.counter import samples_per_peak               # noqa: E402
+    from analysis.counter import safety_for, samples_per_peak   # noqa: E402
     from analysis.reader import read_channels                   # noqa: E402
     from scipy.signal import firwin, lfilter, lfilter_zi
     import pandas as pd
@@ -100,7 +100,7 @@ def _onur_trace(path: Path, pad: int) -> dict:
     win = CONFIG["baseline"]["rolling_window_samples"]
     col = read_channels(path)[:, pad - 1]
 
-    c = StreamingCounter()
+    c = StreamingCounter(safety=safety_for(pad))
     hits, lv, tm = [], [], []
     block = int(rt["block_samples"])
     for s in range(0, len(col), block):
