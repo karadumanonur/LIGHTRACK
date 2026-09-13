@@ -57,11 +57,24 @@ coupling_height_fraction = 0.30
 # they follow the sensor down, and the rebound between bogies — a sixth of the
 # axle peak on PAD 1, over a quarter of it here — starts crossing them. Both
 # chains count it, which is why raising only the confirm threshold was not
-# enough. Measured over all 1596 reference trains: 50.25 % exact before,
-# 75.19 % after.
+# enough; the derivative chain's own entry had to come up with it.
+#
+# What remained after that leaned on speed: 84 % of trains counted exactly at
+# 60-90 km/h against 57 % at 110-130. An axle peak lasts 2.2 m / v, so a fast
+# train gives the duration rule fewer samples to work with, and asking a small
+# peak to hold above the arm for 18 % of its width throws real axles away. At
+# 6 % it does not — but the rule cannot go: removing it entirely collapses the
+# grating to 23 % exact, because then the rebound qualifies too. The level's
+# percentile came up with it, which is what decides how much of that rebound
+# counts as a peak at all.
+#
+# Measured over all 1596 reference trains: 50.25 % exact to begin with,
+# 75.19 % on the thresholds alone, 81.89 % with these.
 [safety_by_pad.10]
 peak_fall_fraction = 0.35
 d_lower_cut_fraction = 0.50
+x_peak_percentile = 40.0
+x_min_duration_fraction = 0.06
 
 [channel_to_pad]
 pad_of_channel = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
