@@ -62,6 +62,7 @@ class AdaptiveSettings:
     minimum_width_model_peaks: int = 3
     width_outlier_probability: float = 0.01
     spectral_tail_probability: float = 0.02
+    absolute_gate_nm: float = 0.020  # 0.020 nm = 20 pm mutlak gürültü eşiği
 
 
 @dataclass(frozen=True)
@@ -143,7 +144,6 @@ def estimate_correlation_samples(values: np.ndarray, fs_hz: float) -> int:
     variance = float(np.dot(centered, centered))
     if variance <= 0:
         return 1
-    # Direct evaluation is faster than a full FFT for this short lag range.
     acf = np.array(
         [np.dot(centered[:-lag], centered[lag:]) / variance for lag in range(1, maximum_lag + 1)]
     )
@@ -162,7 +162,6 @@ def _block_spectra(
     minimum_length = min((len(block) for block in chosen), default=0)
     if minimum_length < 16:
         raise ValueError("Not enough samples in spectral-learning blocks")
-    # A power-of-two segment gives every selected block the same frequency grid.
     nperseg = 2 ** int(np.floor(np.log2(minimum_length)))
     spectra: list[np.ndarray] = []
     frequency_hz: np.ndarray | None = None
@@ -187,13 +186,7 @@ def adaptive_butterworth_process(
     fallback_highpass_hz: float = 0.5,
     fallback_lowpass_hz: float = 40.0,
 ) -> AdaptiveFilterResult:
-    """Learn a band pass from active-versus-quiet derivative spectral contrast.
-
-    Differentiation is used only to learn the band: it suppresses slow baseline
-    motion while emphasising transient axle edges. The returned signal is the
-    ordinary zero-phase Butterworth-filtered wavelength response, not its
-    derivative.
-    """
+    """Learn a band pass from active-versus-quiet derivative spectral contrast."""
     settings = settings or AdaptiveSettings()
     values = np.asarray(wavelength_nm, dtype=float)
     if values.ndim != 1 or len(values) < 64 or np.any(~np.isfinite(values)):
@@ -206,9 +199,6 @@ def adaptive_butterworth_process(
     derivative = np.gradient(centered) * fs_hz
     correlation_samples = estimate_correlation_samples(derivative, fs_hz)
 
-    # Blocks scale with the measured correlation length and recording length.
-    # The sqrt(N) term provides increasing frequency resolution for longer data
-    # without inserting a sensor-specific duration in seconds.
     target_size = max(
         64,
         20 * correlation_samples,
@@ -216,9 +206,6 @@ def adaptive_butterworth_process(
     )
     block_count = max(1, int(np.ceil(len(values) / target_size)))
     blocks = list(np.array_split(np.arange(len(values)), block_count))
-    # Select activity using robust wavelength energy. The derivative spectrum
-    # is excellent for learning transient frequencies, but derivative energy
-    # alone can be dominated by stationary high-frequency interference.
     energies = np.asarray(
         [np.median(np.square(centered[block] - np.median(centered[block]))) for block in blocks],
         dtype=float,
@@ -240,9 +227,6 @@ def adaptive_butterworth_process(
         if not np.array_equal(frequency_hz, active_frequency_hz):
             raise ValueError("Active and quiet spectral grids differ")
 
-        # A frequency is attributed to the event only when the median active
-        # power exceeds an empirical upper-tail value from quiet blocks. This
-        # rejects stationary electrical interference shared by both groups.
         active_psd = np.median(active_spectra, axis=0)
         quiet_tail_probability = min(
             0.5,
@@ -269,7 +253,6 @@ def adaptive_butterworth_process(
         low_index = int(np.searchsorted(cumulative, tail, side="left"))
         high_index = int(np.searchsorted(cumulative, 1.0 - tail, side="left"))
         resolution_hz = float(frequency_hz[1] - frequency_hz[0])
-        # One spectral bin of padding protects components on a quantile boundary.
         learned_highpass = max(resolution_hz, float(frequency_hz[low_index] - resolution_hz))
         learned_lowpass = min(
             float(np.nextafter(nyquist_hz, 0.0)),
@@ -352,9 +335,6 @@ def active_event_mask(
         quiet_energies, len(blocks), settings.expected_false_peaks
     )
     active_blocks = energies > threshold
-    # A train can cross a block boundary. Include a neighbouring block only
-    # when its energy also exceeds the median quiet energy; this is learned
-    # from the recording and is not a time padding constant.
     quiet_median = float(np.median(quiet_energies))
     expanded = active_blocks.copy()
     for index in np.flatnonzero(active_blocks):
@@ -379,7 +359,6 @@ def empirical_extreme_threshold(
         raise ValueError("No background peak features are available")
     tail_probability = min(0.5, expected_false_peaks / max(1, all_test_count))
     quantile = 1.0 - tail_probability
-    # ``higher`` prevents interpolation below an observed background extreme.
     return float(np.quantile(values, quantile, method="higher"))
 
 
@@ -401,16 +380,7 @@ def separated_broad_width_cluster(
     height_ratio: np.ndarray,
     prominence_ratio: np.ndarray,
 ) -> np.ndarray:
-    """Reject a distinct broad, weak response population.
-
-    The comparison is performed in log-width space, where multiplicative width
-    changes become additive. BIC chooses between one population and two ordered
-    populations with a shared within-group variance. The broad population is
-    removed only when it is the minority, its median width is at least one
-    octave (2x) above the normal population, and its median joint evidence is
-    at most half as strong. These dimensionless conditions distinguish broad
-    structural lobes without imposing a sensor-specific width in seconds.
-    """
+    """Reject a distinct broad, weak response population."""
     widths = np.asarray(width_s, dtype=float)
     keep = np.ones(len(widths), dtype=bool)
     if len(widths) < 4 or np.any(~np.isfinite(widths)) or np.any(widths <= 0):
@@ -425,9 +395,7 @@ def separated_broad_width_cluster(
     count = len(values)
     epsilon = np.finfo(float).eps
     variance_one = max(float(np.var(values)), epsilon)
-    likelihood_one = -0.5 * count * (
-        np.log(2.0 * np.pi * variance_one) + 1.0
-    )
+    likelihood_one = -0.5 * count * (np.log(2.0 * np.pi * variance_one) + 1.0)
     bic_one = -2.0 * likelihood_one + 2.0 * np.log(count)
 
     best_bic_two = float("inf")
@@ -443,9 +411,7 @@ def separated_broad_width_cluster(
         likelihood_two = (
             len(lower_values) * np.log(len(lower_values) / count)
             + len(upper_values) * np.log(len(upper_values) / count)
-            - 0.5
-            * count
-            * (np.log(2.0 * np.pi * shared_variance) + 1.0)
+            - 0.5 * count * (np.log(2.0 * np.pi * shared_variance) + 1.0)
         )
         bic_two = -2.0 * likelihood_two + 4.0 * np.log(count)
         if bic_two < best_bic_two:
@@ -461,8 +427,7 @@ def separated_broad_width_cluster(
         return keep
     width_ratio = float(np.median(widths[broad]) / np.median(widths[lower]))
     evidence_ratio = float(
-        np.median(evidence[broad])
-        / max(np.median(evidence[lower]), epsilon)
+        np.median(evidence[broad]) / max(np.median(evidence[lower]), epsilon)
     )
     if width_ratio >= 2.0 and evidence_ratio <= 0.5:
         keep[broad] = False
@@ -473,15 +438,7 @@ def separated_evidence_cluster(
     height_ratio: np.ndarray,
     prominence_ratio: np.ndarray,
 ) -> tuple[np.ndarray, float, float]:
-    """Separate coherent responses from marginal background exceedances.
-
-    Both height and prominence must support a peak, so the evidence is their
-    smaller threshold ratio.  In log-evidence space, background exceedances
-    accumulate just above one while physical responses form a separated upper
-    group. A Bayesian-information-criterion comparison decides whether one or
-    two evidence groups are justified; no amplitude fraction or sensor-specific
-    number is inserted.
-    """
+    """Separate coherent responses from marginal background exceedances."""
     evidence = np.minimum(height_ratio, prominence_ratio)
     if len(evidence) < 3:
         return np.ones(len(evidence), dtype=bool), 1.0, 0.0
@@ -491,11 +448,6 @@ def separated_evidence_cluster(
     gaps = np.diff(log_evidence)
     largest_gap = int(np.argmax(gaps))
 
-    # Compare one Gaussian log-evidence group with two ordered groups using the
-    # Bayesian information criterion. The two groups share their within-group
-    # variance but have separate means and a mixture weight. Sharing variance
-    # permits a singleton marginal-noise group without assigning that singleton
-    # an artificial zero variance. BIC still penalises the extra group.
     epsilon = np.finfo(float).eps
 
     def best_bic_split(values: np.ndarray) -> int | None:
@@ -503,9 +455,7 @@ def separated_evidence_cluster(
         if count < 4:
             return None
         variance_one = max(float(np.var(values)), epsilon)
-        likelihood_one = -0.5 * count * (
-            np.log(2.0 * np.pi * variance_one) + 1.0
-        )
+        likelihood_one = -0.5 * count * (np.log(2.0 * np.pi * variance_one) + 1.0)
         bic_one = -2.0 * likelihood_one + 2.0 * np.log(count)
         best_bic_two = float("inf")
         best_split: int | None = None
@@ -520,9 +470,7 @@ def separated_evidence_cluster(
             likelihood_two = (
                 len(lower) * np.log(len(lower) / count)
                 + len(upper) * np.log(len(upper) / count)
-                - 0.5
-                * count
-                * (np.log(2.0 * np.pi * shared_variance) + 1.0)
+                - 0.5 * count * (np.log(2.0 * np.pi * shared_variance) + 1.0)
             )
             bic_two = -2.0 * likelihood_two + 4.0 * np.log(count)
             if bic_two < best_bic_two:
@@ -530,15 +478,9 @@ def separated_evidence_cluster(
                 best_split = split_candidate
         return best_split if best_split is not None and best_bic_two < bic_one else None
 
-    # Use one separation only. Repeated splitting can mistake legitimate
-    # locomotive/wagon amplitude groups for noise and undercount the train.
     relative_split = best_bic_split(log_evidence)
     first_kept = relative_split if relative_split is not None else 0
     if first_kept == 0:
-        # BIC deliberately resists splitting a short sample. As a conservative
-        # fallback, accept an ordered evidence change only when the ratio across
-        # it exceeds 1 + sqrt(N), the sample-size growth of random extremes,
-        # and both sides contain more than one observation.
         proposed = largest_gap + 1
         sample_adjusted_gap = np.log1p(np.sqrt(len(evidence)))
         if (
@@ -657,8 +599,6 @@ def analyse_polarity(
         warnings.append(
             f"only {len(background_indices)} quiet-background maxima; thresholds may be unstable"
         )
-        # Fall back to the lower half of maxima by height.  This remains
-        # sensor-relative and avoids inserting an absolute amplitude threshold.
         order = np.argsort(height)
         fallback_count = min(len(order), max(settings.minimum_background_peaks, len(order) // 2))
         selected = order[:fallback_count]
@@ -682,8 +622,7 @@ def analyse_polarity(
 
     evidence_keep, evidence_threshold, evidence_log_gap = separated_evidence_cluster(
         height[preliminary_positions] / max(height_threshold, np.finfo(float).eps),
-        prominences[preliminary_positions]
-        / max(prominence_threshold, np.finfo(float).eps),
+        prominences[preliminary_positions] / max(prominence_threshold, np.finfo(float).eps),
     )
     evidence_positions = preliminary_positions[evidence_keep]
 
@@ -700,26 +639,16 @@ def analyse_polarity(
         and np.isfinite(width_log_sigma)
         and width_log_sigma > np.finfo(float).eps
     ):
-        # Peak widths are modelled on the log scale because widths are positive
-        # and multiplicative. Width alone uses the distribution-free Chebyshev
-        # limit, so ordinary sensor-dependent width variation is retained.
         width_z = np.abs(np.log(preliminary_widths / typical_width_s)) / width_log_sigma
         width_keep = width_z <= float(1.0 / np.sqrt(settings.width_outlier_probability))
 
-        # A second evidence split is accepted only when it is independently
-        # supported by width: every member of its weak group must also be an
-        # unusually broad/narrow response. The Bonferroni limit controls the
-        # probability of falsely declaring any normal-width axle an outlier in
-        # the recording. This joint test removes weak baseline/ringing events
-        # without splitting legitimate locomotive and wagon amplitude groups.
         per_tail_probability = settings.width_outlier_probability / (
             2.0 * len(evidence_positions)
         )
         joint_width_limit = float(norm.isf(per_tail_probability))
         second_evidence_keep, _, second_evidence_gap = separated_evidence_cluster(
             height[evidence_positions] / max(height_threshold, np.finfo(float).eps),
-            prominences[evidence_positions]
-            / max(prominence_threshold, np.finfo(float).eps),
+            prominences[evidence_positions] / max(prominence_threshold, np.finfo(float).eps),
         )
         weak_group = ~second_evidence_keep
         if (
@@ -729,7 +658,6 @@ def analyse_polarity(
         ):
             width_keep &= second_evidence_keep
 
-    # No width in seconds or sensor-specific amplitude fraction is imposed.
     positions = evidence_positions[width_keep]
     candidate_indices = local_indices[positions]
     candidate_widths = width_s[positions]
@@ -766,17 +694,12 @@ def analyse_polarity(
         else np.array([], dtype=float)
     )
 
-    # Learn the broad-response population only after ringing candidates have
-    # been merged. Otherwise several maxima from one broad lobe can distort the
-    # width mixture and hide the actual broad accepted responses.
     count_before_broad_filter = len(accepted_indices)
     if count_before_broad_filter:
         broad_width_keep = separated_broad_width_cluster(
             accepted_widths,
-            oriented[accepted_indices]
-            / max(height_threshold, np.finfo(float).eps),
-            accepted_prominences
-            / max(prominence_threshold, np.finfo(float).eps),
+            oriented[accepted_indices] / max(height_threshold, np.finfo(float).eps),
+            accepted_prominences / max(prominence_threshold, np.finfo(float).eps),
         )
         broad_rejected = int(np.sum(~broad_width_keep))
         if broad_rejected:
@@ -837,36 +760,14 @@ def analyse_polarity(
     )
 
 
-def polarity_evidence(result: PolarityResult) -> float:
-    if not len(result.accepted_indices):
-        return 0.0
-    median_snr = float(np.median(result.accepted_height_sigma))
-    median_prominence_ratio = float(
-        np.median(result.accepted_prominence_nm)
-        / max(result.prominence_threshold_nm, np.finfo(float).eps)
-    )
-
-
 def polarity_impulse_sharpness(result: PolarityResult) -> float:
-    """Score the direct axle impulse without favouring rebound multiplicity.
-
-    Prominence divided by half-prominence width measures the slope-like
-    sharpness of a response. The median of the sharper half is robust to weak
-    baseline candidates while rewarding the narrow direct-loading impulse over
-    broad unloading/rebound valleys.
-    """
+    """Score the direct axle impulse without favouring rebound multiplicity."""
     if not len(result.accepted_indices):
         return 0.0
     widths = np.maximum(result.accepted_width_s, np.finfo(float).eps)
     sharpness = np.sort(result.accepted_prominence_nm / widths)
     sharper_half = sharpness[len(sharpness) // 2 :]
     return float(np.median(sharper_half))
-    return float(
-        np.sqrt(len(result.accepted_indices))
-        * np.log1p(max(0.0, median_snr))
-        * np.log1p(max(0.0, median_prominence_ratio))
-        * max(0.05, result.quality_score)
-    )
 
 
 def detect_adaptive_peaks(
@@ -884,6 +785,71 @@ def detect_adaptive_peaks(
         raise ValueError("polarity must be auto, positive, or negative")
 
     initial_location, _ = robust_location_scale(signal_nm)
+
+    # -------------------------------------------------------------------------
+    # ABSOLUTE NOISE GATE / INPUT VALIDATION
+    # Tren yoksa doğrudan 0 aks döndür, istatistiksel hesaplamalara girme.
+    # -------------------------------------------------------------------------
+    max_excursion_nm = float(np.max(np.abs(signal_nm - initial_location)))
+    if max_excursion_nm < settings.absolute_gate_nm:
+        empty_polarity = PolarityResult(
+            sign=1,
+            local_peak_count=0,
+            background_peak_count=0,
+            height_threshold_nm=settings.absolute_gate_nm,
+            prominence_threshold_nm=settings.absolute_gate_nm,
+            height_threshold_sigma=float("nan"),
+            prominence_threshold_sigma=float("nan"),
+            valley_threshold_sigma=float("nan"),
+            typical_width_s=float("nan"),
+            width_log_sigma=float("nan"),
+            evidence_threshold=float("nan"),
+            evidence_log_gap=float("nan"),
+            preliminary_indices=np.array([], dtype=int),
+            accepted_indices=np.array([], dtype=int),
+            accepted_width_s=np.array([], dtype=float),
+            accepted_prominence_nm=np.array([], dtype=float),
+            accepted_height_sigma=np.array([], dtype=float),
+            quality_score=0.0,
+            warnings=["Signal maximum excursion below absolute gate (empty record)"],
+        )
+        empty_neg = PolarityResult(
+            sign=-1,
+            local_peak_count=0,
+            background_peak_count=0,
+            height_threshold_nm=settings.absolute_gate_nm,
+            prominence_threshold_nm=settings.absolute_gate_nm,
+            height_threshold_sigma=float("nan"),
+            prominence_threshold_sigma=float("nan"),
+            valley_threshold_sigma=float("nan"),
+            typical_width_s=float("nan"),
+            width_log_sigma=float("nan"),
+            evidence_threshold=float("nan"),
+            evidence_log_gap=float("nan"),
+            preliminary_indices=np.array([], dtype=int),
+            accepted_indices=np.array([], dtype=int),
+            accepted_width_s=np.array([], dtype=float),
+            accepted_prominence_nm=np.array([], dtype=float),
+            accepted_height_sigma=np.array([], dtype=float),
+            quality_score=0.0,
+            warnings=["Signal maximum excursion below absolute gate (empty record)"],
+        )
+        return AdaptiveDetection(
+            indices=np.array([], dtype=int),
+            signs=np.array([], dtype=int),
+            selected_polarity=polarity if polarity != "auto" else "positive",
+            polarity_confidence=0.0,
+            background_location_nm=float(initial_location),
+            background_sigma_nm=float("nan"),
+            correlation_time_s=0.0,
+            quiet_fraction_observed=1.0,
+            quality_score=0.0,
+            quality_label="no statistically detectable event",
+            positive=empty_polarity,
+            negative=empty_neg,
+        )
+    # -------------------------------------------------------------------------
+
     correlation_samples = estimate_correlation_samples(signal_nm, fs_hz)
     background_mask = quiet_background_mask(
         signal_nm - initial_location, correlation_samples, settings
@@ -904,9 +870,7 @@ def detect_adaptive_peaks(
     active_centered = signal_nm[activity_mask] - background_location
     if not len(active_centered):
         active_centered = signal_nm - background_location
-    # Compare equally sized extreme tails. sqrt(N) grows with the recording
-    # length but remains a vanishing fraction of it, making this more robust
-    # than selecting polarity from one maximum sample.
+
     tail_count = max(1, int(np.ceil(np.sqrt(len(active_centered)))))
     ordered = np.sort(active_centered)
     evidence_positive = float(np.mean(ordered[-tail_count:]))
@@ -920,9 +884,6 @@ def detect_adaptive_peaks(
     elif polarity == "negative":
         selected = negative
     else:
-        # The direct axle loading is normally the sharper side of the bipolar
-        # FBG response. Extreme-tail amplitude is used only as a tie-breaker
-        # when the sharpnesses are numerically indistinguishable.
         if np.isclose(impulse_positive, impulse_negative):
             selected = positive if evidence_positive >= evidence_negative else negative
         else:
@@ -1181,8 +1142,6 @@ def main() -> None:
                     processed_nm, time_s, fs_hz, args.polarity, settings
                 )
                 table = peak_table(time_s, raw_nm, processed_nm, detection)
-                # Output names always use the physical FBG number. The stored
-                # column remains in the summary and diagnostics for traceability.
                 base = f"{file_path.stem}_fbg{physical_sensor}_adaptive"
                 table.to_csv(output_dir / f"{base}_peaks.csv", index=False, float_format="%.8f")
                 diagnostics = diagnostic_dict(detection)
