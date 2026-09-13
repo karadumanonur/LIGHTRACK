@@ -26,6 +26,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import streamlit as st
+from streamlit.errors import StreamlitAPIException
 from scipy.interpolate import CubicSpline
 from scipy.signal import detrend, fftconvolve, find_peaks, resample, welch
 
@@ -42,6 +43,7 @@ FIXED_HIGHPASS_HZ = 0.5
 FIXED_LOWPASS_HZ = 40.0
 MAX_PLOT_POINTS = 12_000
 SUMMARY_FILENAME = "two_period_peak_change_mean_std_pm.csv"
+AXLE_HEIGHT_CACHE_VERSION = "raw-linear-detrend-polarity-v2"
 
 
 def default_two_period_summary() -> Path:
@@ -70,6 +72,16 @@ def timestamp_from_name(path: Path) -> pd.Timestamp | None:
     if match is None:
         return None
     return pd.to_datetime(match.group(1), format="%Y%m%dT%H%M%S,%f")
+
+
+def title_with_recording_timestamp(
+    title: str, timestamp: pd.Timestamp | None
+) -> str:
+    """Append the source recording's UTC timestamp to a plot title."""
+    if timestamp is None:
+        return title
+    formatted = timestamp.strftime("%d.%m.%Y %H:%M:%S.%f")[:-3]
+    return f"{title} · {formatted} UTC"
 
 
 def default_data_root() -> str:
@@ -151,7 +163,11 @@ def index_recordings(root_text: str) -> pd.DataFrame:
 
 
 @st.cache_data(show_spinner=False)
-def load_two_period_summary(path_text: str) -> pd.DataFrame:
+def load_two_period_summary(
+    path_text: str,
+    calculation_version: str = AXLE_HEIGHT_CACHE_VERSION,
+) -> pd.DataFrame:
+    del calculation_version  # Included in the Streamlit cache key.
     path = Path(path_text)
     if not path.is_file():
         return pd.DataFrame()
@@ -189,56 +205,110 @@ def load_recording_frame(path_text: str) -> pd.DataFrame:
     return frame
 
 
+def load_physical_fbg_from_frame(
+    frame: pd.DataFrame, physical_fbg: int
+) -> dict[str, object]:
+    """Select one physical FBG after detecting this recording's stored order."""
+    if physical_fbg not in range(1, 13):
+        raise ValueError("Physical FBG must be between 1 and 12")
+    medians = frame.loc[:, 1:12].median(axis=0, skipna=True)
+    if not np.isfinite(medians.loc[1]) or not np.isfinite(medians.loc[12]):
+        raise ValueError("Stored wavelength order cannot be identified")
+    ascending = bool(medians.loc[1] < medians.loc[12])
+    stored_by_physical_fbg = {
+        sensor: sensor if ascending else 13 - sensor for sensor in range(1, 13)
+    }
+    stored_column = stored_by_physical_fbg[physical_fbg]
+    selected = frame.loc[:, [0, stored_column]].replace([np.inf, -np.inf], np.nan).dropna()
+    if len(selected) < 20:
+        raise ValueError(f"Physical FBG {physical_fbg} has too few valid samples")
+    return {
+        "time_s": selected[0].to_numpy(dtype=float),
+        "raw_nm": selected[stored_column].to_numpy(dtype=float),
+        "physical_fbg": physical_fbg,
+        "stored_column": stored_column,
+        "stored_order": "ascending" if ascending else "descending",
+    }
+
+
 def load_physical_fbg(path_text: str, physical_fbg: int) -> dict[str, object]:
     # All physical FBGs in a recording share the same source table. Reading
     # that ~10 MB text file separately for every sensor caused large temporary
     # DataFrames and could terminate the packaged Streamlit server.
     frame = load_recording_frame(path_text)
 
-    medians = frame.loc[:, 1:12].median(axis=0, skipna=True)
-    if not np.isfinite(medians.loc[1]) or not np.isfinite(medians.loc[12]):
-        raise ValueError("Stored wavelength order cannot be identified")
-    ascending = bool(medians.loc[1] < medians.loc[12])
-    stored_column = physical_fbg if ascending else 13 - physical_fbg
-    selected = frame.loc[:, [0, stored_column]].dropna()
-    if len(selected) < 20:
-        raise ValueError(f"Physical FBG {physical_fbg} has too few valid samples")
-
-    return {
-        "time_s": selected[0].to_numpy(dtype=float),
-        "raw_nm": selected[stored_column].to_numpy(dtype=float),
-        "stored_column": stored_column,
-        "stored_order": "ascending" if ascending else "descending",
-    }
+    return load_physical_fbg_from_frame(frame, physical_fbg)
 
 
-@st.cache_resource(show_spinner=False, max_entries=12)
-def analyse_recording(path_text: str, physical_fbg: int) -> dict[str, object]:
-    loaded = load_physical_fbg(path_text, physical_fbg)
+def calculate_axle_heights(
+    frame: pd.DataFrame,
+    physical_fbg: int,
+    detector=detect_adaptive_peaks,
+) -> dict[str, object]:
+    """Calculate polarity-oriented heights from detrended raw axle samples."""
+    loaded = load_physical_fbg_from_frame(frame, physical_fbg)
     time_s = np.asarray(loaded["time_s"], dtype=float)
     raw_nm = np.asarray(loaded["raw_nm"], dtype=float)
     fs_hz = sampling_rate(time_s)
     processed_nm = butterworth_process(
-        raw_nm,
-        fs_hz,
-        FIXED_HIGHPASS_HZ,
-        FIXED_LOWPASS_HZ,
+        raw_nm, fs_hz, FIXED_HIGHPASS_HZ, FIXED_LOWPASS_HZ
     )
-    detection = detect_adaptive_peaks(
+    detection = detector(
         processed_nm,
         time_s,
         fs_hz,
         polarity="auto",
         settings=AdaptiveSettings(),
     )
-    derivative_nm_s = np.gradient(processed_nm, time_s)
+    accepted = np.asarray(detection.indices, dtype=int)
+    accepted = accepted[(accepted >= 0) & (accepted < len(raw_nm))]
+    selected_sign = 1 if detection.selected_polarity == "positive" else -1
+    baseline_removed_pm = detrend(raw_nm, type="linear") * 1000.0
+    axle_heights_pm = selected_sign * baseline_removed_pm[accepted]
+    finite = np.isfinite(axle_heights_pm)
+    accepted = accepted[finite]
+    axle_heights_pm = axle_heights_pm[finite]
+    peak_count = int(len(axle_heights_pm))
+    if peak_count:
+        mean_pm = float(np.mean(axle_heights_pm))
+        std_pm = float(np.std(axle_heights_pm, ddof=1)) if peak_count > 1 else 0.0
+        lower_pm = mean_pm - std_pm / 2.0
+        upper_pm = mean_pm + std_pm / 2.0
+    else:
+        mean_pm = std_pm = lower_pm = upper_pm = float("nan")
     return {
         **loaded,
         "fs_hz": fs_hz,
         "processed_nm": processed_nm,
+        "baseline_removed_pm": baseline_removed_pm,
+        "peak_indices": accepted,
+        "peak_signs": np.full(peak_count, selected_sign, dtype=int),
+        "peak_count": peak_count,
+        "axle_heights_pm": axle_heights_pm,
+        "mean_pm": mean_pm,
+        "std_pm": std_pm,
+        "lower_pm": lower_pm,
+        "upper_pm": upper_pm,
+        "selected_sign": selected_sign,
+        "detection": detection,
+    }
+
+
+@st.cache_resource(show_spinner=False, max_entries=12)
+def analyse_recording(
+    path_text: str,
+    physical_fbg: int,
+    calculation_version: str = AXLE_HEIGHT_CACHE_VERSION,
+) -> dict[str, object]:
+    del calculation_version  # Included in the Streamlit cache key.
+    calculated = calculate_axle_heights(load_recording_frame(path_text), physical_fbg)
+    time_s = np.asarray(calculated["time_s"], dtype=float)
+    processed_nm = np.asarray(calculated["processed_nm"], dtype=float)
+    detection = calculated.pop("detection")
+    derivative_nm_s = np.gradient(processed_nm, time_s)
+    return {
+        **calculated,
         "derivative_nm_s": derivative_nm_s,
-        "peak_indices": detection.indices,
-        "peak_signs": detection.signs,
         "polarity": detection.selected_polarity,
         "polarity_confidence": detection.polarity_confidence,
         "background_sigma_nm": detection.background_sigma_nm,
@@ -250,6 +320,58 @@ def analyse_recording(path_text: str, physical_fbg: int) -> dict[str, object]:
         "negative_height_sigma": detection.negative.height_threshold_sigma,
         "negative_prominence_sigma": detection.negative.prominence_threshold_sigma,
     }
+
+
+def axle_height_summary_row(
+    path_text: str, physical_fbg: int, timestamp: pd.Timestamp | None = None
+) -> dict[str, object] | None:
+    """Return the canonical graph/export row, or None when no peaks exist."""
+    result = analyse_recording(path_text, physical_fbg)
+    if int(result["peak_count"]) == 0 or not np.isfinite(result["mean_pm"]):
+        return None
+    stamp = timestamp if timestamp is not None else timestamp_from_name(Path(path_text))
+    return {
+        "file": Path(path_text).name,
+        "recording_time_utc": stamp,
+        "physical_fbg": int(result["physical_fbg"]),
+        "stored_column": int(result["stored_column"]),
+        "positive_peak_count": int(result["peak_count"]),
+        "peak_count": int(result["peak_count"]),
+        "selected_sign": int(result["selected_sign"]),
+        "mean_peak_change_pm": float(result["mean_pm"]),
+        "std_peak_change_pm": float(result["std_pm"]),
+        "mean_minus_std_pm": float(result["lower_pm"]),
+        "mean_plus_std_pm": float(result["upper_pm"]),
+    }
+
+
+def summary_to_csv(data: pd.DataFrame) -> bytes:
+    """Serialize the exact canonical rows used by the graph."""
+    return data.to_csv(index=False).encode("utf-8")
+
+
+@st.cache_data(show_spinner=False, max_entries=12)
+def calculate_dataset_summary(
+    recording_rows: tuple[tuple[str, pd.Timestamp, str], ...],
+    physical_fbg: int,
+    calculation_version: str = AXLE_HEIGHT_CACHE_VERSION,
+) -> pd.DataFrame:
+    """Calculate canonical graph/export rows for one FBG across all recordings."""
+    del calculation_version
+    rows: list[dict[str, object]] = []
+    for path_text, timestamp, period in recording_rows:
+        try:
+            row = axle_height_summary_row(path_text, physical_fbg, timestamp)
+        except Exception:
+            continue
+        if row is None:
+            continue
+        row["measurement_period"] = (
+            "Period 2 (Jul)" if "period_2" in str(period).lower()
+            else "Period 1 (May-Jun)"
+        )
+        rows.append(row)
+    return pd.DataFrame(rows)
 
 
 def reduced_indices(length: int, protected: np.ndarray | None = None) -> np.ndarray:
@@ -268,6 +390,7 @@ def signal_figure(
     ylabel: str,
     peaks: np.ndarray | None = None,
     x_limits: tuple[float, float] | None = None,
+    recording_timestamp: pd.Timestamp | None = None,
 ) -> plt.Figure:
     elapsed = time_s - time_s[0]
     if x_limits is None:
@@ -293,7 +416,7 @@ def signal_figure(
             zorder=4, label=f"Accepted axle candidates ({len(peaks)})",
         )
         ax.legend(loc="upper right")
-    ax.set_title(title)
+    ax.set_title(title_with_recording_timestamp(title, recording_timestamp))
     ax.set_xlabel("Elapsed time [s]")
     ax.set_ylabel(ylabel)
     if x_limits is not None:
@@ -305,6 +428,7 @@ def signal_figure(
 
 def axle_count_overlay_figure(
     results: list[tuple[int, dict[str, object]]],
+    recording_timestamp: pd.Timestamp | None = None,
 ) -> plt.Figure:
     """Overlay selected physical FBG detector responses on one time axis."""
     colors = plt.get_cmap("tab20")
@@ -357,7 +481,11 @@ def axle_count_overlay_figure(
             )
 
     ax.axhline(0.0, color="#64748b", linewidth=0.7, alpha=0.45)
-    ax.set_title("Self-calibrating axle counts")
+    ax.set_title(
+        title_with_recording_timestamp(
+            "Self-calibrating axle counts", recording_timestamp
+        )
+    )
     ax.set_xlabel("Elapsed time [s]")
     ax.set_ylabel("Filtered response [pm]")
     if x_limits is not None:
@@ -394,7 +522,9 @@ def analysis_window(result: dict[str, object], passage_only: bool) -> tuple[np.n
     return time_s, detrend(raw_nm, type="linear")
 
 
-def fft_plot(values: np.ndarray, fs_hz: float) -> plt.Figure:
+def fft_plot(
+    values: np.ndarray, fs_hz: float, recording_timestamp: pd.Timestamp | None
+) -> plt.Figure:
     window = np.hanning(len(values))
     frequency = np.fft.rfftfreq(len(values), d=1.0 / fs_hz)
     power = np.abs(np.fft.rfft(values * window)) ** 2 / max(
@@ -403,13 +533,19 @@ def fft_plot(values: np.ndarray, fs_hz: float) -> plt.Figure:
     keep = (frequency >= 0.1) & (frequency <= min(100.0, fs_hz / 2.0))
     fig, ax = plt.subplots(figsize=(13, 4.4))
     ax.plot(frequency[keep], power[keep], linewidth=1.0)
-    ax.set(title="FFT power spectrum", xlabel="Frequency [Hz]", ylabel="Power [nm²/Hz]")
+    ax.set(
+        title=title_with_recording_timestamp("FFT power spectrum", recording_timestamp),
+        xlabel="Frequency [Hz]",
+        ylabel="Power [nm²/Hz]",
+    )
     ax.grid(alpha=0.22)
     fig.tight_layout()
     return fig
 
 
-def psd_plot(values: np.ndarray, fs_hz: float) -> plt.Figure:
+def psd_plot(
+    values: np.ndarray, fs_hz: float, recording_timestamp: pd.Timestamp | None
+) -> plt.Figure:
     nperseg = min(2048, len(values))
     frequency, power = welch(
         values,
@@ -423,13 +559,24 @@ def psd_plot(values: np.ndarray, fs_hz: float) -> plt.Figure:
     keep = (frequency >= 0.1) & (frequency <= min(100.0, fs_hz / 2.0))
     fig, ax = plt.subplots(figsize=(13, 4.4))
     ax.semilogy(frequency[keep], np.maximum(power[keep], np.finfo(float).tiny))
-    ax.set(title="Welch power spectral density", xlabel="Frequency [Hz]", ylabel="PSD [nm²/Hz]")
+    ax.set(
+        title=title_with_recording_timestamp(
+            "Welch power spectral density", recording_timestamp
+        ),
+        xlabel="Frequency [Hz]",
+        ylabel="PSD [nm²/Hz]",
+    )
     ax.grid(alpha=0.22)
     fig.tight_layout()
     return fig
 
 
-def wavelet_plot(time_s: np.ndarray, values: np.ndarray, fs_hz: float) -> plt.Figure:
+def wavelet_plot(
+    time_s: np.ndarray,
+    values: np.ndarray,
+    fs_hz: float,
+    recording_timestamp: pd.Timestamp | None,
+) -> plt.Figure:
     maximum_samples = 6000
     if len(values) > maximum_samples:
         reduced = resample(values, maximum_samples)
@@ -455,7 +602,11 @@ def wavelet_plot(time_s: np.ndarray, values: np.ndarray, fs_hz: float) -> plt.Fi
         shading="auto", cmap="viridis",
     )
     ax.set_yscale("log")
-    ax.set(title="Morlet wavelet energy", xlabel="Elapsed time [s]", ylabel="Frequency [Hz]")
+    ax.set(
+        title=title_with_recording_timestamp("Morlet wavelet energy", recording_timestamp),
+        xlabel="Elapsed time [s]",
+        ylabel="Frequency [Hz]",
+    )
     fig.colorbar(mesh, ax=ax, label="Wavelet energy [nm²]")
     fig.tight_layout()
     return fig
@@ -517,7 +668,12 @@ def decomposition_input(
     return reduced_time, reduced, reduced_fs
 
 
-def emd_plot(time_s: np.ndarray, values: np.ndarray, fs_hz: float) -> plt.Figure:
+def emd_plot(
+    time_s: np.ndarray,
+    values: np.ndarray,
+    fs_hz: float,
+    recording_timestamp: pd.Timestamp | None,
+) -> plt.Figure:
     reduced_time, reduced, _ = decomposition_input(time_s, values, fs_hz)
     imfs, residue = emd_decompose(reduced, maximum_imfs=4)
     series = [*imfs, residue]
@@ -530,12 +686,21 @@ def emd_plot(time_s: np.ndarray, values: np.ndarray, fs_hz: float) -> plt.Figure
         ax.set_ylabel(label)
         ax.grid(alpha=0.18)
     axes[-1].set_xlabel("Elapsed time [s]")
-    axes[0].set_title("Empirical mode decomposition")
+    axes[0].set_title(
+        title_with_recording_timestamp(
+            "Empirical mode decomposition", recording_timestamp
+        )
+    )
     fig.tight_layout()
     return fig
 
 
-def vmd_plot(time_s: np.ndarray, values: np.ndarray, fs_hz: float) -> plt.Figure:
+def vmd_plot(
+    time_s: np.ndarray,
+    values: np.ndarray,
+    fs_hz: float,
+    recording_timestamp: pd.Timestamp | None,
+) -> plt.Figure:
     try:
         from vmdpy import VMD
     except ImportError as exc:
@@ -552,7 +717,11 @@ def vmd_plot(time_s: np.ndarray, values: np.ndarray, fs_hz: float) -> plt.Figure
         ax.set_ylabel(f"Mode {index}\n{center_hz:.1f} Hz")
         ax.grid(alpha=0.18)
     axes[-1].set_xlabel("Elapsed time [s]")
-    axes[0].set_title("Variational mode decomposition")
+    axes[0].set_title(
+        title_with_recording_timestamp(
+            "Variational mode decomposition", recording_timestamp
+        )
+    )
     fig.tight_layout()
     return fig
 
@@ -561,6 +730,7 @@ def show_frequency_analysis(
     method: str,
     result: dict[str, object],
     passage_only: bool,
+    recording_timestamp: pd.Timestamp | None,
 ) -> None:
     time_s, values = analysis_window(result, passage_only)
     fs_hz = float(result["fs_hz"])
@@ -569,15 +739,15 @@ def show_frequency_analysis(
         return
     with st.spinner(f"Calculating {method}…"):
         if method == "FFT":
-            figure = fft_plot(values, fs_hz)
+            figure = fft_plot(values, fs_hz, recording_timestamp)
         elif method == "Welch PSD":
-            figure = psd_plot(values, fs_hz)
+            figure = psd_plot(values, fs_hz, recording_timestamp)
         elif method == "Morlet wavelet":
-            figure = wavelet_plot(time_s, values, fs_hz)
+            figure = wavelet_plot(time_s, values, fs_hz, recording_timestamp)
         elif method == "EMD":
-            figure = emd_plot(time_s, values, fs_hz)
+            figure = emd_plot(time_s, values, fs_hz, recording_timestamp)
         else:
-            figure = vmd_plot(time_s, values, fs_hz)
+            figure = vmd_plot(time_s, values, fs_hz, recording_timestamp)
     st.pyplot(figure, width="stretch")
     plt.close(figure)
 
@@ -616,7 +786,7 @@ def two_period_panel(
         tooltip=[
             alt.Tooltip("recording_time_utc:T", title="Recording", format="%d %b %Y %H:%M:%S"),
             alt.Tooltip("file:N", title="File"),
-            alt.Tooltip("positive_peak_count:Q", title="Fixed-detector axles"),
+            alt.Tooltip("peak_count:Q", title="Detected axles"),
             alt.Tooltip("mean_peak_change_pm:Q", title="Mean", format=".2f"),
             alt.Tooltip("std_peak_change_pm:Q", title="Standard deviation", format=".2f"),
         ],
@@ -624,24 +794,33 @@ def two_period_panel(
     return (error_bars + points).properties(width=width, height=430)
 
 
-def render_two_period_overview(recordings: pd.DataFrame) -> None:
-    summary = load_two_period_summary(str(TWO_PERIOD_SUMMARY))
-    if summary.empty:
-        st.error(f"The two-period detrended summary was not found: {TWO_PERIOD_SUMMARY}")
-        return
-
+def render_two_period_overview(
+    recordings: pd.DataFrame, use_bundled_summary: bool = True
+) -> None:
     st.subheader("Detrended axle-amplitude comparison")
     st.caption(
         "Each dot is the mean of all linearly detrended raw axle amplitudes in one "
-        "recording. Each vertical line spans mean ±1 sample standard deviation. "
+        "recording. Each vertical line has a total span of one sample standard deviation. "
         "Click a dot to inspect that recording."
     )
     sensor = st.selectbox(
         "Physical FBG",
-        sorted(int(value) for value in summary["physical_fbg"].unique()),
+        list(range(1, 13)),
         key="trend_physical_fbg",
     )
-    sensor_data = summary.loc[summary["physical_fbg"] == sensor].copy()
+    if use_bundled_summary:
+        summary = load_two_period_summary(str(TWO_PERIOD_SUMMARY))
+        sensor_data = summary.loc[summary["physical_fbg"] == sensor].copy()
+    else:
+        recording_rows = tuple(
+            (str(row.path), row.timestamp, str(row.period))
+            for row in recordings.itertuples()
+        )
+        with st.spinner(f"Calculating detrended raw axle heights for physical FBG {sensor}…"):
+            sensor_data = calculate_dataset_summary(recording_rows, sensor)
+    if sensor_data.empty:
+        st.error("No recordings with accepted axle peaks were available for this physical FBG.")
+        return
     lower = float(sensor_data["mean_minus_std_pm"].min())
     upper = float(sensor_data["mean_plus_std_pm"].max())
     padding = max(1.0, 0.04 * (upper - lower))
@@ -663,14 +842,98 @@ def render_two_period_overview(recordings: pd.DataFrame) -> None:
         .resolve_scale(y="shared")
         .add_params(pick)
     )
-    event = st.altair_chart(
-        chart,
-        key=f"two_period_trend_fbg{sensor}",
-        on_select="rerun",
-        selection_mode="trend_pick",
-        width="stretch",
-    )
-    chosen = event.selection.get("trend_pick", [])
+    try:
+        event = st.altair_chart(
+            chart,
+            key=f"two_period_trend_fbg{sensor}",
+            on_select="rerun",
+            selection_mode="trend_pick",
+            width="stretch",
+        )
+        chosen = event.selection.get("trend_pick", [])
+    except StreamlitAPIException as exc:
+        if "Selections are not yet supported for multi-view charts" not in str(exc):
+            raise
+        # Streamlit <1.55 cannot return selections from a composed chart. Keep
+        # the mean points clickable in that environment with two simple views.
+        simple_events = []
+        for period, title, width in (
+            ("Period 1 (May-Jun)", "Period 1: May–June", 690),
+            ("Period 2 (Jul)", "Period 2: July", 430),
+        ):
+            selected = sensor_data.loc[
+                sensor_data["measurement_period"] == period
+            ].copy()
+            selected["span_low"] = (
+                selected["mean_peak_change_pm"]
+                - selected["std_peak_change_pm"] / 2
+            )
+            selected["span_high"] = (
+                selected["mean_peak_change_pm"]
+                + selected["std_peak_change_pm"] / 2
+            )
+            # A single line mark keeps the chart selectable on Streamlit 1.52.
+            # Three ordered rows per recording draw the thin low-to-high span
+            # and expose the mean row as a visible point on that line.
+            span_rows = pd.concat(
+                [
+                    selected.assign(span_value=selected["span_low"], span_order=0),
+                    selected.assign(
+                        span_value=selected["mean_peak_change_pm"], span_order=1
+                    ),
+                    selected.assign(span_value=selected["span_high"], span_order=2),
+                ],
+                ignore_index=True,
+            )
+            simple_chart = alt.Chart(span_rows).mark_line(
+                point=alt.OverlayMarkDef(filled=True, strokeWidth=0),
+                strokeWidth=1,
+            ).encode(
+                x=alt.X("recording_time_utc:T", title=title),
+                y=alt.Y(
+                    "span_value:Q",
+                    title="Detrended axle-peak amplitude [pm]",
+                    scale=alt.Scale(domain=list(y_domain), zero=False),
+                ),
+                detail="file:N",
+                order=alt.Order("span_order:Q"),
+                color=alt.Color(
+                    "measurement_period:N",
+                    scale=alt.Scale(
+                        domain=["Period 1 (May-Jun)", "Period 2 (Jul)"],
+                        range=["#1261a0", "#1b8a5a"],
+                    ),
+                    legend=alt.Legend(title="Measurement period"),
+                ),
+                fill=alt.condition(
+                    alt.datum.span_order == 1,
+                    alt.Color(
+                        "measurement_period:N",
+                        scale=alt.Scale(
+                            domain=["Period 1 (May-Jun)", "Period 2 (Jul)"],
+                            range=["#1261a0", "#1b8a5a"],
+                        ),
+                    ),
+                    alt.value("transparent"),
+                ),
+                tooltip=[
+                    "file:N",
+                    "mean_peak_change_pm:Q",
+                    "std_peak_change_pm:Q",
+                ],
+            ).add_params(pick).properties(width=width, height=430)
+            simple_events.append(
+                st.altair_chart(
+                    simple_chart,
+                    key=f"two_period_trend_legacy_{sensor}_{period}",
+                    on_select="rerun",
+                    selection_mode="trend_pick",
+                    width="stretch",
+                )
+            )
+        chosen = simple_events[0].selection.get("trend_pick", [])
+        if not chosen:
+            chosen = simple_events[1].selection.get("trend_pick", [])
     if not chosen:
         st.info("Click a mean dot to open its raw signal and latest axle detection.")
         return
@@ -687,6 +950,7 @@ def render_two_period_overview(recordings: pd.DataFrame) -> None:
 
     selected_row = selected_rows.iloc[0]
     selected_path = str(path_rows.iloc[0]["path"])
+    selected_timestamp = timestamp_from_name(Path(selected_path))
     with st.spinner("Opening the selected recording and running the latest detector…"):
         result = analyse_recording(selected_path, sensor)
     latest_indices = np.asarray(result["peak_indices"], dtype=int)
@@ -695,7 +959,7 @@ def render_two_period_overview(recordings: pd.DataFrame) -> None:
     with st.container(horizontal=True):
         st.metric("Detrended axle mean", f"{selected_row['mean_peak_change_pm']:.2f} pm", border=True)
         st.metric("Axle standard deviation", f"{selected_row['std_peak_change_pm']:.2f} pm", border=True)
-        st.metric("Fixed-detector count used by dot", int(selected_row["positive_peak_count"]), border=True)
+        st.metric("Detected axle count used by dot", int(selected_row["peak_count"]), border=True)
         st.metric("Latest self-calibrating count", len(latest_indices), border=True)
 
     detail_view = st.segmented_control(
@@ -712,6 +976,7 @@ def render_two_period_overview(recordings: pd.DataFrame) -> None:
         "Raw wavelength [nm]",
         latest_indices,
         limits,
+        selected_timestamp,
     )
     st.pyplot(raw_figure, width="stretch")
     plt.close(raw_figure)
@@ -723,14 +988,13 @@ def render_two_period_overview(recordings: pd.DataFrame) -> None:
         "Filtered response [pm]",
         latest_indices,
         limits,
+        selected_timestamp,
     )
     st.pyplot(axle_figure, width="stretch")
     plt.close(axle_figure)
 
     st.caption(
-        "The overview dot uses the validated fixed detector to choose axle locations. "
-        "The opened axle-count plot uses the latest self-calibrating detector, so the two "
-        "counts are shown separately when they disagree."
+        "The overview dot and opened axle-count plot use the same accepted axle locations."
     )
 
 
@@ -795,8 +1059,7 @@ def main() -> None:
         st.success(f"Found {len(recordings):,} unique timestamped recordings")
 
     view_options = ["Recording explorer"]
-    if TWO_PERIOD_SUMMARY.is_file():
-        view_options.append("Two-period amplitude overview")
+    view_options.append("Two-period amplitude overview")
     app_view = st.segmented_control(
         "Analysis view",
         view_options,
@@ -804,7 +1067,9 @@ def main() -> None:
         key="analysis_view",
     )
     if app_view == "Two-period amplitude overview":
-        render_two_period_overview(recordings)
+        render_two_period_overview(
+            recordings, use_bundled_summary=source_mode == "Local/server folder"
+        )
         return
 
     controls = st.columns([1.05, 1.65, 0.75, 0.95])
@@ -821,6 +1086,7 @@ def main() -> None:
     selected_path = controls[1].selectbox(
         "2. Recording", list(recording_labels), format_func=recording_labels.get
     )
+    selected_timestamp = timestamp_from_name(Path(selected_path))
     selected_head = controls[2].selectbox("3. Head", ["All", *sorted(HEAD_SENSORS)])
     available_fbgs = (
         list(range(1, 13))
@@ -874,7 +1140,7 @@ def main() -> None:
         st.subheader("Axle count")
         st.dataframe(pd.DataFrame(count_rows), hide_index=True, width="stretch")
 
-        figure = axle_count_overlay_figure(results)
+        figure = axle_count_overlay_figure(results, selected_timestamp)
         st.pyplot(figure, width="stretch")
         plt.close(figure)
 
@@ -920,6 +1186,7 @@ def main() -> None:
         "Raw wavelength [nm]",
         detail_peaks,
         plot_limits,
+        selected_timestamp,
     )
     st.pyplot(raw_figure, width="stretch")
     plt.close(raw_figure)
@@ -931,6 +1198,7 @@ def main() -> None:
         "Filtered response [pm]",
         detail_peaks,
         plot_limits,
+        selected_timestamp,
     )
     st.pyplot(processed_figure, width="stretch")
     plt.close(processed_figure)
@@ -941,6 +1209,7 @@ def main() -> None:
         "Derivative of the filtered response",
         "Derivative [pm/s]",
         x_limits=plot_limits,
+        recording_timestamp=selected_timestamp,
     )
     st.pyplot(derivative_figure, width="stretch")
     plt.close(derivative_figure)
@@ -954,7 +1223,9 @@ def main() -> None:
         "Analysis window", ("Detected passage", "Whole recording")
     ) == "Detected passage"
     try:
-        show_frequency_analysis(method, detail_result, passage_only)
+        show_frequency_analysis(
+            method, detail_result, passage_only, selected_timestamp
+        )
     except Exception as exc:
         st.error(str(exc))
 
