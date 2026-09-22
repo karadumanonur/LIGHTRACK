@@ -1,21 +1,10 @@
 """Self-calibrating axle-peak detector for FBG recordings.
 
-This detector is intentionally separate from ``sensor12_peak_tracker.py`` so
-the validated fixed-parameter detector remains reproducible.  It removes the
-sensor-specific 6% height fraction, 8-sigma prominence multiplier, and 40 ms
-minimum-distance rule.  Instead it learns, for every sensor recording:
-
-* a robust background location and scale;
-* a recording-specific Butterworth passband from active-versus-quiet spectra;
-* height and prominence thresholds from quiet background blocks;
-* the dominant response polarity;
-* the normal peak-width distribution; and
-* whether neighbouring maxima are separated by a statistically meaningful
-  valley or are likely to be ringing from one response.
-
-The only detection-risk setting is ``expected_false_peaks``: the requested
-expected number of background maxima allowed to exceed each learned threshold
-in one recording.  It has the same interpretation for every sensor.
+Uses fixed Butterworth filtering (0.5-40 Hz by default), followed by
+recording-specific background, height, prominence, peak-width, and valley
+estimation. The strict detector and dashboard reuse the statistical helpers.
+Height, prominence, and valley thresholds use the maximum quiet-background
+measurement; no adaptive spectral passband or tail-probability setting is used.
 """
 
 from __future__ import annotations
@@ -30,13 +19,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.signal import (
-    butter,
-    detrend,
     find_peaks,
     peak_prominences,
     peak_widths,
-    sosfiltfilt,
-    welch,
 )
 from scipy.stats import norm
 
@@ -54,30 +39,12 @@ PHYSICAL_TO_STORED = {physical: 13 - physical for physical in range(1, 13)}
 class AdaptiveSettings:
     """Sensor-independent statistical design settings."""
 
-    expected_false_peaks: float = 0.5
     quiet_fraction: float = 0.5
-    active_fraction: float = 0.25
     minimum_quiet_blocks: int = 4
     minimum_background_peaks: int = 30
     minimum_width_model_peaks: int = 3
     width_outlier_probability: float = 0.01
-    spectral_tail_probability: float = 0.02
     absolute_gate_nm: float = 0.020  # 0.020 nm = 20 pm mutlak gürültü eşiği
-
-
-@dataclass(frozen=True)
-class AdaptiveFilterResult:
-    """Processed signal and recording-specific spectral-band diagnostics."""
-
-    signal_nm: np.ndarray
-    highpass_hz: float
-    lowpass_hz: float
-    frequency_resolution_hz: float
-    active_block_count: int
-    quiet_block_count: int
-    spectral_contrast: float
-    used_fallback: bool
-    warning: str = ""
 
 
 @dataclass
@@ -151,145 +118,6 @@ def estimate_correlation_samples(values: np.ndarray, fs_hz: float) -> int:
     return int(crossings[0] + 1) if len(crossings) else int(maximum_lag)
 
 
-def _block_spectra(
-    derivative: np.ndarray,
-    blocks: list[np.ndarray],
-    selected: np.ndarray,
-    fs_hz: float,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Return a common frequency grid and one Welch PSD row per selected block."""
-    chosen = [blocks[int(index)] for index in np.asarray(selected, dtype=int)]
-    minimum_length = min((len(block) for block in chosen), default=0)
-    if minimum_length < 16:
-        raise ValueError("Not enough samples in spectral-learning blocks")
-    nperseg = 2 ** int(np.floor(np.log2(minimum_length)))
-    spectra: list[np.ndarray] = []
-    frequency_hz: np.ndarray | None = None
-    for block in chosen:
-        frequency_hz, power = welch(
-            derivative[block],
-            fs=fs_hz,
-            window="hann",
-            nperseg=nperseg,
-            noverlap=nperseg // 2,
-            detrend="constant",
-            scaling="density",
-        )
-        spectra.append(power)
-    return frequency_hz, np.vstack(spectra)
-
-
-def adaptive_butterworth_process(
-    wavelength_nm: np.ndarray,
-    fs_hz: float,
-    settings: AdaptiveSettings | None = None,
-    fallback_highpass_hz: float = 0.5,
-    fallback_lowpass_hz: float = 40.0,
-) -> AdaptiveFilterResult:
-    """Learn a band pass from active-versus-quiet derivative spectral contrast."""
-    settings = settings or AdaptiveSettings()
-    values = np.asarray(wavelength_nm, dtype=float)
-    if values.ndim != 1 or len(values) < 64 or np.any(~np.isfinite(values)):
-        raise ValueError("Adaptive filtering requires a finite one-dimensional signal")
-    nyquist_hz = fs_hz / 2.0
-    if not 0 < fallback_highpass_hz < fallback_lowpass_hz < nyquist_hz:
-        raise ValueError("Fallback filter limits must lie strictly inside Nyquist")
-
-    centered = detrend(values, type="linear")
-    derivative = np.gradient(centered) * fs_hz
-    correlation_samples = estimate_correlation_samples(derivative, fs_hz)
-
-    target_size = max(
-        64,
-        20 * correlation_samples,
-        int(np.ceil(4.0 * np.sqrt(len(values)))),
-    )
-    block_count = max(1, int(np.ceil(len(values) / target_size)))
-    blocks = list(np.array_split(np.arange(len(values)), block_count))
-    energies = np.asarray(
-        [np.median(np.square(centered[block] - np.median(centered[block]))) for block in blocks],
-        dtype=float,
-    )
-    ranked = np.argsort(energies)
-    quiet_count = max(2, int(np.floor(settings.quiet_fraction * len(blocks))))
-    quiet_count = min(quiet_count, max(1, len(blocks) // 2))
-    active_count = max(2, int(np.ceil(settings.active_fraction * len(blocks))))
-    active_count = min(active_count, max(1, len(blocks) - quiet_count))
-    quiet = ranked[:quiet_count]
-    active = ranked[-active_count:]
-
-    warning = ""
-    try:
-        frequency_hz, quiet_spectra = _block_spectra(derivative, blocks, quiet, fs_hz)
-        active_frequency_hz, active_spectra = _block_spectra(
-            derivative, blocks, active, fs_hz
-        )
-        if not np.array_equal(frequency_hz, active_frequency_hz):
-            raise ValueError("Active and quiet spectral grids differ")
-
-        active_psd = np.median(active_spectra, axis=0)
-        quiet_tail_probability = min(
-            0.5,
-            settings.expected_false_peaks / max(1, len(frequency_hz)),
-        )
-        quiet_limit = np.quantile(
-            quiet_spectra,
-            1.0 - quiet_tail_probability,
-            axis=0,
-            method="higher",
-        )
-        quiet_psd = np.median(quiet_spectra, axis=0)
-        excess = np.maximum(active_psd - quiet_limit, 0.0)
-        valid = (frequency_hz > 0.0) & (frequency_hz < nyquist_hz)
-        excess = np.where(valid, excess, 0.0)
-        total_excess = float(np.sum(excess))
-        quiet_total = float(np.sum(quiet_psd[valid]))
-        spectral_contrast = total_excess / max(quiet_total, np.finfo(float).eps)
-        if not np.isfinite(total_excess) or total_excess <= np.finfo(float).eps:
-            raise ValueError("No activity-specific spectral energy was measurable")
-
-        cumulative = np.cumsum(excess) / total_excess
-        tail = settings.spectral_tail_probability / 2.0
-        low_index = int(np.searchsorted(cumulative, tail, side="left"))
-        high_index = int(np.searchsorted(cumulative, 1.0 - tail, side="left"))
-        resolution_hz = float(frequency_hz[1] - frequency_hz[0])
-        learned_highpass = max(resolution_hz, float(frequency_hz[low_index] - resolution_hz))
-        learned_lowpass = min(
-            float(np.nextafter(nyquist_hz, 0.0)),
-            float(frequency_hz[high_index] + resolution_hz),
-        )
-        if learned_lowpass <= learned_highpass + resolution_hz:
-            raise ValueError("Learned spectral band is too narrow")
-        used_fallback = False
-    except (ValueError, FloatingPointError) as exc:
-        learned_highpass = float(fallback_highpass_hz)
-        learned_lowpass = float(fallback_lowpass_hz)
-        resolution_hz = float("nan")
-        spectral_contrast = float("nan")
-        used_fallback = True
-        warning = f"adaptive spectral filter fallback: {exc}"
-
-    sos = butter(
-        4,
-        [learned_highpass, learned_lowpass],
-        btype="bandpass",
-        fs=fs_hz,
-        output="sos",
-    )
-    processed = sosfiltfilt(sos, centered)
-    return AdaptiveFilterResult(
-        signal_nm=processed,
-        highpass_hz=float(learned_highpass),
-        lowpass_hz=float(learned_lowpass),
-        frequency_resolution_hz=float(resolution_hz),
-        active_block_count=int(len(active)),
-        quiet_block_count=int(len(quiet)),
-        spectral_contrast=float(spectral_contrast),
-        used_fallback=used_fallback,
-        warning=warning,
-    )
-
-
 def quiet_background_mask(
     signal_nm: np.ndarray,
     correlation_samples: int,
@@ -331,9 +159,7 @@ def active_event_mask(
     quiet_energies = energies[quiet_block]
     if not len(quiet_energies):
         return ~background_mask
-    threshold = empirical_extreme_threshold(
-        quiet_energies, len(blocks), settings.expected_false_peaks
-    )
+    threshold = maximum_background_threshold(quiet_energies)
     active_blocks = energies > threshold
     quiet_median = float(np.median(quiet_energies))
     expanded = active_blocks.copy()
@@ -347,19 +173,13 @@ def active_event_mask(
     return mask
 
 
-def empirical_extreme_threshold(
-    background_values: np.ndarray,
-    all_test_count: int,
-    expected_false_peaks: float,
-) -> float:
-    """Choose an order-statistic threshold with a recording-level false-peak target."""
-    values = np.sort(np.asarray(background_values, dtype=float))
+def maximum_background_threshold(background_values: np.ndarray) -> float:
+    """Use the largest finite background measurement as the threshold."""
+    values = np.asarray(background_values, dtype=float)
     values = values[np.isfinite(values)]
     if not len(values):
         raise ValueError("No background peak features are available")
-    tail_probability = min(0.5, expected_false_peaks / max(1, all_test_count))
-    quantile = 1.0 - tail_probability
-    return float(np.quantile(values, quantile, method="higher"))
+    return float(np.max(values))
 
 
 def robust_log_width_model(width_s: np.ndarray) -> tuple[float, float]:
@@ -606,12 +426,8 @@ def analyse_polarity(
         background_heights = height[selected]
         background_prominences = prominences[selected]
 
-    height_threshold = empirical_extreme_threshold(
-        background_heights, len(local_indices), settings.expected_false_peaks
-    )
-    prominence_threshold = empirical_extreme_threshold(
-        background_prominences, len(local_indices), settings.expected_false_peaks
-    )
+    height_threshold = maximum_background_threshold(background_heights)
+    prominence_threshold = maximum_background_threshold(background_prominences)
     preliminary_mask = (
         (height > height_threshold)
         & (prominences > prominence_threshold)
@@ -667,11 +483,7 @@ def analyse_polarity(
         oriented, background_indices, background_mask, background_sigma_nm
     )
     if len(valley_depths):
-        valley_threshold_sigma = empirical_extreme_threshold(
-            valley_depths,
-            max(1, len(local_indices)),
-            settings.expected_false_peaks,
-        )
+        valley_threshold_sigma = maximum_background_threshold(valley_depths)
     else:
         valley_threshold_sigma = prominence_threshold / background_sigma_nm
         warnings.append("no quiet valley distribution; prominence threshold used for separation")
@@ -779,8 +591,6 @@ def detect_adaptive_peaks(
 ) -> AdaptiveDetection:
     """Detect peaks using parameters learned from this sensor recording."""
     settings = settings or AdaptiveSettings()
-    if not 0 < settings.expected_false_peaks <= 5:
-        raise ValueError("expected_false_peaks must be in (0, 5]")
     if polarity not in {"auto", "positive", "negative"}:
         raise ValueError("polarity must be auto, positive, or negative")
 
@@ -972,7 +782,8 @@ def plot_detection(
     raw_nm: np.ndarray,
     processed_nm: np.ndarray,
     detection: AdaptiveDetection,
-    filter_result: AdaptiveFilterResult,
+    highpass_hz: float,
+    lowpass_hz: float,
     output_path: Path,
 ) -> None:
     physical_sensor = 13 - stored_sensor
@@ -1025,8 +836,7 @@ def plot_detection(
         0.98,
         (
             f"Noise sigma = {detection.background_sigma_nm:.6f} nm\n"
-            f"Filter = {filter_result.highpass_hz:.3g}–{filter_result.lowpass_hz:.3g} Hz"
-            f"{' (fallback)' if filter_result.used_fallback else ''}\n"
+            f"Filter = {highpass_hz:.3g}–{lowpass_hz:.3g} Hz\n"
             f"Height = {selected.height_threshold_sigma:.2f} sigma\n"
             f"Prominence = {selected.prominence_threshold_sigma:.2f} sigma"
         ),
@@ -1071,22 +881,8 @@ def parse_args() -> argparse.Namespace:
         help="Interpret --sensors as physical FBG numbers using the reversed mapping",
     )
     parser.add_argument("--polarity", choices=("auto", "positive", "negative"), default="auto")
-    parser.add_argument(
-        "--filter-mode", choices=("adaptive", "fixed"), default="fixed",
-        help="Learn a passband per sensor recording, or use fixed limits (default)",
-    )
-    parser.add_argument(
-        "--highpass", type=float, default=0.5,
-        help="Fixed-mode high pass, also used if adaptive spectral learning fails",
-    )
-    parser.add_argument(
-        "--lowpass", type=float, default=40.0,
-        help="Fixed-mode low pass, also used if adaptive spectral learning fails",
-    )
-    parser.add_argument(
-        "--expected-false-peaks", type=float, default=0.5,
-        help="Expected background maxima allowed beyond each learned threshold per recording",
-    )
+    parser.add_argument("--highpass", type=float, default=0.5, help="Fixed high-pass cutoff in Hz")
+    parser.add_argument("--lowpass", type=float, default=40.0, help="Fixed low-pass cutoff in Hz")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--output-dir", type=Path, default=Path("self_calibrating_results"))
     parser.add_argument("--plot", action="store_true")
@@ -1103,7 +899,7 @@ def main() -> None:
     if not files:
         raise FileNotFoundError(f"No files matched {args.pattern!r} in {input_path}")
 
-    settings = AdaptiveSettings(expected_false_peaks=args.expected_false_peaks)
+    settings = AdaptiveSettings()
     output_dir = args.output_dir.expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     summary_rows: list[dict] = []
@@ -1114,30 +910,9 @@ def main() -> None:
                 physical_sensor = 13 - stored_sensor
                 time_s, raw_nm = load_fbg_file(file_path, stored_sensor)
                 fs_hz = sampling_rate(time_s)
-                if args.filter_mode == "adaptive":
-                    filter_result = adaptive_butterworth_process(
-                        raw_nm,
-                        fs_hz,
-                        settings,
-                        fallback_highpass_hz=args.highpass,
-                        fallback_lowpass_hz=args.lowpass,
-                    )
-                    processed_nm = filter_result.signal_nm
-                else:
-                    processed_nm = butterworth_process(
-                        raw_nm, fs_hz, args.highpass, args.lowpass
-                    )
-                    filter_result = AdaptiveFilterResult(
-                        signal_nm=processed_nm,
-                        highpass_hz=float(args.highpass),
-                        lowpass_hz=float(args.lowpass),
-                        frequency_resolution_hz=float("nan"),
-                        active_block_count=0,
-                        quiet_block_count=0,
-                        spectral_contrast=float("nan"),
-                        used_fallback=False,
-                        warning="fixed filter requested",
-                    )
+                processed_nm = butterworth_process(
+                    raw_nm, fs_hz, args.highpass, args.lowpass
+                )
                 detection = detect_adaptive_peaks(
                     processed_nm, time_s, fs_hz, args.polarity, settings
                 )
@@ -1148,15 +923,9 @@ def main() -> None:
                 diagnostics["physical_sensor"] = physical_sensor
                 diagnostics["stored_column"] = stored_sensor
                 diagnostics["filter"] = {
-                    "mode": args.filter_mode,
-                    "highpass_hz": filter_result.highpass_hz,
-                    "lowpass_hz": filter_result.lowpass_hz,
-                    "frequency_resolution_hz": filter_result.frequency_resolution_hz,
-                    "active_block_count": filter_result.active_block_count,
-                    "quiet_block_count": filter_result.quiet_block_count,
-                    "spectral_contrast": filter_result.spectral_contrast,
-                    "used_fallback": filter_result.used_fallback,
-                    "warning": filter_result.warning,
+                    "mode": "fixed",
+                    "highpass_hz": args.highpass,
+                    "lowpass_hz": args.lowpass,
                 }
                 (output_dir / f"{base}_diagnostics.json").write_text(
                     json.dumps(diagnostics, indent=2, allow_nan=True),
@@ -1165,7 +934,7 @@ def main() -> None:
                 if args.plot:
                     plot_detection(
                         file_path, stored_sensor, time_s, raw_nm, processed_nm,
-                        detection, filter_result, output_dir / f"{base}.png",
+                        detection, args.highpass, args.lowpass, output_dir / f"{base}.png",
                     )
                 selected = detection.positive if detection.selected_polarity == "positive" else detection.negative
                 summary_rows.append(
@@ -1185,12 +954,9 @@ def main() -> None:
                         "valley_threshold_sigma": selected.valley_threshold_sigma,
                         "correlation_time_s": detection.correlation_time_s,
                         "sampling_rate_hz": fs_hz,
-                        "filter_mode": args.filter_mode,
-                        "learned_highpass_hz": filter_result.highpass_hz,
-                        "learned_lowpass_hz": filter_result.lowpass_hz,
-                        "filter_spectral_contrast": filter_result.spectral_contrast,
-                        "filter_used_fallback": filter_result.used_fallback,
-                        "filter_warning": filter_result.warning,
+                        "filter_mode": "fixed",
+                        "highpass_hz": args.highpass,
+                        "lowpass_hz": args.lowpass,
                         "error": "",
                     }
                 )
@@ -1198,7 +964,7 @@ def main() -> None:
                     f"[{file_number}/{len(files)}] {file_path.name} FBG {physical_sensor} "
                     f"(stored column {stored_sensor}): "
                     f"{len(table)} peaks, {detection.selected_polarity}, {detection.quality_label}; "
-                    f"band {filter_result.highpass_hz:.3g}-{filter_result.lowpass_hz:.3g} Hz"
+                    f"band {args.highpass:.3g}-{args.lowpass:.3g} Hz"
                 )
             except Exception as exc:
                 physical_sensor = 13 - stored_sensor
