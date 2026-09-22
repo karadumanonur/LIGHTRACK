@@ -10,14 +10,15 @@ on:
       - ".streamlit/config.toml"
       - "packaging/build_lightrack_macos.sh"
       - "packaging/Choose_Train_Monitoring_Mac_Data_Folder.command"
-      - "fbg_analysis_dashboard.py"
+      - "fbg_analysis_dashboard_strict.py"
+      - "train_monitoring_ui.py"
+      - "recording_io.py"
+      - "axle_detector.py"
       - "lightrack_exe.py"
       - "assets/two_period_peak_change_mean_std_pm.csv"
       - "packaging/README_MAC.md"
       - "requirements-build.txt"
       - "requirements.txt"
-      - "self_calibrating_axle_detector.py"
-      - "sensor12_peak_tracker.py"
 
 permissions:
   contents: read

@@ -137,7 +137,7 @@ def main() -> None:
     args = parse_args()
     input_file = args.input_file.expanduser().resolve()
     script_dir = Path(__file__).resolve().parent
-    detector_dir = (args.detector_dir or script_dir.parent).resolve()
+    detector_dir = (args.detector_dir or script_dir.parent / "legacy").resolve()
     benchmark_script = (args.benchmark_script or script_dir / "compare_peak_algorithms.py").resolve()
     sys.path.insert(0, str(detector_dir))
     from sensor12_peak_tracker import (  # pylint: disable=import-outside-toplevel

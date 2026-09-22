@@ -14,6 +14,9 @@ $summaryCandidates = @(
     (Join-Path (Split-Path -Parent $projectDir) "outputs\fbg1_4_5_9_10_two_periods_detrended_axle_peak_pm\two_period_peak_change_mean_std_pm.csv")
 )
 $summary = $summaryCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+if (-not $summary) {
+    throw "Required Two Period summary CSV was not found."
+}
 
 if (-not $PythonPath) {
     $pythonCandidates = @(
@@ -57,20 +60,16 @@ $arguments = @(
     "--copy-metadata", "streamlit",
     "--hidden-import", "vmdpy",
     "--hidden-import", "scipy._external.array_api_compat.numpy.fft",
-    "--add-data", ((Join-Path $projectDir "fbg_analysis_dashboard.py") + $dataSeparator + "."),
+    "--add-data", ((Join-Path $projectDir "fbg_analysis_dashboard_strict.py") + $dataSeparator + "."),
     "--add-data", ((Join-Path $projectDir ".streamlit\config.toml") + $dataSeparator + ".streamlit"),
     (Join-Path $projectDir "lightrack_exe.py")
 )
 
-if ($summary) {
-    $entryScript = $arguments[-1]
-    $arguments = $arguments[0..($arguments.Count - 2)] + @(
-        "--add-data", ($summary + $dataSeparator + "assets"),
-        $entryScript
-    )
-} else {
-    Write-Host "Note: the optional two-period summary was not bundled." -ForegroundColor Yellow
-}
+$entryScript = $arguments[-1]
+$arguments = $arguments[0..($arguments.Count - 2)] + @(
+    "--add-data", ($summary + $dataSeparator + "assets"),
+    $entryScript
+)
 
 Write-Host "Building TrainMonitoring.exe. This can take several minutes..." -ForegroundColor Cyan
 & $PythonPath @arguments

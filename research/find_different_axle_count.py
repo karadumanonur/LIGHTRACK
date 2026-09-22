@@ -15,7 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from sensor12_peak_tracker import (
+from legacy.sensor12_peak_tracker import (
     butterworth_process,
     detect_peaks,
     load_fbg_file,

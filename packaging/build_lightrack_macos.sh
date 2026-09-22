@@ -27,7 +27,7 @@ PYINSTALLER_ARGS=(
   --copy-metadata streamlit
   --hidden-import vmdpy
   --hidden-import scipy._external.array_api_compat.numpy.fft
-  --add-data "$PROJECT_DIR/fbg_analysis_dashboard.py:."
+  --add-data "$PROJECT_DIR/fbg_analysis_dashboard_strict.py:."
   --add-data "$PROJECT_DIR/.streamlit/config.toml:.streamlit"
 )
 
@@ -36,7 +36,8 @@ if [[ -f "$SUMMARY_REPO" ]]; then
 elif [[ -f "$SUMMARY_LOCAL" ]]; then
   PYINSTALLER_ARGS+=(--add-data "$SUMMARY_LOCAL:assets")
 else
-  echo "Note: the optional two-period summary was not bundled."
+  echo "Required Two Period summary CSV was not found." >&2
+  exit 1
 fi
 
 python -m PyInstaller "${PYINSTALLER_ARGS[@]}" "$PROJECT_DIR/lightrack_exe.py"

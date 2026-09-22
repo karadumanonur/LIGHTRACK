@@ -29,9 +29,11 @@ def user_data_root() -> Path:
 _matplotlib_cache = user_data_root() / "matplotlib"
 _matplotlib_cache.mkdir(parents=True, exist_ok=True)
 os.environ["MPLCONFIGDIR"] = str(_matplotlib_cache)
+os.environ.setdefault("MPLBACKEND", "Agg")
 
-# This import lets PyInstaller discover the dashboard's scientific imports.
-import fbg_analysis_dashboard  # noqa: F401
+# This import lets PyInstaller discover the latest modular dashboard and its
+# canonical axle detector.
+import fbg_analysis_dashboard_strict  # noqa: F401
 from streamlit import config as streamlit_config
 from streamlit.web import bootstrap
 
@@ -142,7 +144,7 @@ def open_when_ready(url: str, port: int) -> None:
 def main() -> None:
     if "--self-test" in sys.argv[1:]:
         root = resource_root()
-        dashboard = root / "fbg_analysis_dashboard.py"
+        dashboard = root / "fbg_analysis_dashboard_strict.py"
         summary = root / "assets" / "two_period_peak_change_mean_std_pm.csv"
         if not dashboard.is_file():
             raise FileNotFoundError(f"Bundled dashboard was not found: {dashboard}")
@@ -156,7 +158,7 @@ def main() -> None:
     force_choice = "--choose-data-folder" in sys.argv[1:]
     data_root = resolve_data_root(force_choice)
     root = resource_root()
-    dashboard = root / "fbg_analysis_dashboard.py"
+    dashboard = root / "fbg_analysis_dashboard_strict.py"
     summary = root / "assets" / "two_period_peak_change_mean_std_pm.csv"
     if not dashboard.is_file():
         raise FileNotFoundError(f"Bundled dashboard was not found: {dashboard}")
@@ -172,7 +174,19 @@ def main() -> None:
     streamlit_config.set_option("global.developmentMode", False)
 
     port = free_port()
-    url = f"http://127.0.0.1:{port}"
+    # Apply launch options before bootstrap.run starts the server.
+    # The same options also apply when configuration files are reloaded.
+    options = {
+        "server.address": "127.0.0.1",
+        "server.port": port,
+        "server.headless": True,
+        "browser.serverAddress": "localhost",
+        "browser.serverPort": port,
+        "browser.gatherUsageStats": False,
+        "global.developmentMode": False,
+    }
+    bootstrap.load_config_options(options)
+    url = f"http://localhost:{port}"
     print("Train Monitoring — FBG Analysis")
     print(f"Dataset: {data_root}")
     print(f"Address: {url}")
@@ -183,13 +197,7 @@ def main() -> None:
         str(dashboard),
         False,
         [],
-        {
-            "server.address": "127.0.0.1",
-            "server.port": port,
-            "server.headless": True,
-            "browser.gatherUsageStats": False,
-            "global.developmentMode": False,
-        },
+        options,
     )
 
 
