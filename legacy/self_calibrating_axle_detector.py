@@ -28,11 +28,18 @@ from scipy.signal import (
 )
 from scipy.stats import norm
 
-from sensor12_peak_tracker import (
-    butterworth_process,
-    load_fbg_file,
-    sampling_rate,
-)
+try:
+    from .sensor12_peak_tracker import (
+        butterworth_process,
+        load_fbg_file,
+        sampling_rate,
+    )
+except ImportError:  # Support direct execution from the legacy folder.
+    from sensor12_peak_tracker import (
+        butterworth_process,
+        load_fbg_file,
+        sampling_rate,
+    )
 
 
 PHYSICAL_TO_STORED = {physical: 13 - physical for physical in range(1, 13)}

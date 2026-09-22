@@ -13,13 +13,17 @@ The full raw dataset is about 17.9 GB and must not be committed to GitHub.
 
 Commit at least these files on the branch you want to deploy:
 
-- `fbg_analysis_dashboard.py`
-- `self_calibrating_axle_detector.py`
-- `sensor12_peak_tracker.py`
+- `fbg_analysis_dashboard_strict.py`
+- `train_monitoring_ui.py`
+- `axle_detector.py`
+- `recording_io.py`
+- `assets/two_period_peak_change_mean_std_pm.csv`
 - `requirements.txt`
 - `.streamlit/config.toml`
 
-The two-period overview is shown only when its derived summary CSV exists on the server. The recording explorer remains available without that summary.
+The Two Period overview always reads its bundled derived summary CSV. It does
+not calculate the full raw dataset at runtime. The recording explorer remains
+available if the summary is unavailable.
 
 ## Local deployment test
 
@@ -27,7 +31,7 @@ From the repository root:
 
 ```powershell
 python -m pip install -r requirements.txt
-python -m streamlit run fbg_analysis_dashboard.py
+python -m streamlit run fbg_analysis_dashboard_strict.py
 ```
 
 Confirm both modes:
@@ -41,7 +45,7 @@ Confirm both modes:
 2. Open `https://share.streamlit.io` and sign in with GitHub.
 3. Select **Create app** and choose the repository.
 4. Select the deployment branch `Asude-Branch`.
-5. Set the entrypoint to `fbg_analysis_dashboard.py`.
+5. Set the entrypoint to `fbg_analysis_dashboard_strict.py`.
 6. Open **Advanced settings** and select Python 3.12.
 7. Deploy the app.
 8. In the hosted app, choose **Upload recordings**.

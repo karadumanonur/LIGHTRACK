@@ -61,10 +61,9 @@ small compatibility entry points for old shortcuts and commands. They forward
 to the new launcher/UI. Streamlit uses the small `fbg_analysis_dashboard_strict.py`
 entry point so the full UI module is imported once rather than redefining it
 on each interaction. This entry point performs no calculation or UI changes.
-The older `fbg_analysis_dashboard.py`,
-`configured_strict_axle_detector.py`, `self_calibrating_axle_detector.py`, and
-`sensor12_peak_tracker.py` remain for existing standalone tools and regression
-reference; the final UI does not import them.
+The previous dashboard and detector implementations are isolated under
+`legacy/` for standalone research and regression reference. The final UI does
+not import them.
 
 To start manually from this directory:
 

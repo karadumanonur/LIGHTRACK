@@ -489,7 +489,7 @@ def main() -> None:
     data_dir = args.data_dir.expanduser().resolve()
     output_dir = args.output_dir.expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    detector_dir = (args.detector_dir or PROJECT_ROOT).resolve()
+    detector_dir = (args.detector_dir or PROJECT_ROOT / "legacy").resolve()
     butterworth_process, detect_peaks, load_fbg_file, robust_sigma, sampling_rate = load_detector_functions(detector_dir)
     labels = independent_labels(args.candidate_csv.expanduser().resolve())
     labels.to_csv(output_dir / "benchmark_ground_truth.csv", index=False)

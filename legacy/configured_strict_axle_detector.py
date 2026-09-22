@@ -24,18 +24,32 @@ import numpy as np
 import pandas as pd
 from scipy.signal import find_peaks, peak_prominences, peak_widths
 
-from self_calibrating_axle_detector import (
-    AdaptiveSettings,
-    PolarityResult,
-    analyse_polarity,
-    estimate_correlation_samples,
-    merge_ringing_candidates,
-    polarity_impulse_sharpness,
-    quiet_background_mask,
-    robust_location_scale,
-    separated_broad_width_cluster,
-)
-from sensor12_peak_tracker import butterworth_process
+try:
+    from .self_calibrating_axle_detector import (
+        AdaptiveSettings,
+        PolarityResult,
+        analyse_polarity,
+        estimate_correlation_samples,
+        merge_ringing_candidates,
+        polarity_impulse_sharpness,
+        quiet_background_mask,
+        robust_location_scale,
+        separated_broad_width_cluster,
+    )
+    from .sensor12_peak_tracker import butterworth_process
+except ImportError:  # Support direct execution from the legacy folder.
+    from self_calibrating_axle_detector import (
+        AdaptiveSettings,
+        PolarityResult,
+        analyse_polarity,
+        estimate_correlation_samples,
+        merge_ringing_candidates,
+        polarity_impulse_sharpness,
+        quiet_background_mask,
+        robust_location_scale,
+        separated_broad_width_cluster,
+    )
+    from sensor12_peak_tracker import butterworth_process
 
 
 EXPECTED_SAMPLING_RATE_HZ = 500.0

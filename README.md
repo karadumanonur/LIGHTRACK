@@ -8,7 +8,7 @@ Start the dashboard from Python:
 
 ```powershell
 python -m pip install -r requirements.txt
-streamlit run fbg_analysis_dashboard.py
+python launch_train_monitoring.py
 ```
 
 The Windows and macOS release packages include Python and the required libraries. Raw recordings are deliberately not included; select the local `raw_data` folder when Train Monitoring starts.
@@ -17,9 +17,11 @@ The Windows and macOS release packages include Python and the required libraries
 
 | Location | Purpose |
 |---|---|
-| `fbg_analysis_dashboard.py` | Interactive recording-analysis dashboard |
-| `self_calibrating_axle_detector.py` | Latest record-specific axle detector |
-| `sensor12_peak_tracker.py` | Validated fixed-parameter detector |
+| `fbg_analysis_dashboard_strict.py` | Current Streamlit entry point |
+| `train_monitoring_ui.py` | Current interactive recording-analysis dashboard |
+| `axle_detector.py` | Canonical latest axle-counting algorithm |
+| `recording_io.py` | Recording loading and physical-FBG mapping |
+| `legacy/` | Previous detectors and dashboard retained for research reference |
 | `research/` | Reproducible comparison, matching and movement-study scripts |
 | `exploratory/` | Earlier familiarisation and investigation scripts |
 | `packaging/` | Windows and macOS application builders and instructions |
@@ -37,11 +39,8 @@ The latest detector keeps the validated 0.5–40 Hz Butterworth band while learn
 6. apply peak-width and shape checks;
 7. count accepted axle candidates.
 
-Run one physical sensor:
-
-```powershell
-python self_calibrating_axle_detector.py "path\to\recording.txt" --sensors 1 --physical-sensors --plot
-```
+The active UI imports this implementation directly from `axle_detector.py`.
+Previous standalone algorithms are isolated under `legacy/`.
 
 ## Data policy
 

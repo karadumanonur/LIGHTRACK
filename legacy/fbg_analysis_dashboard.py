@@ -1,7 +1,7 @@
 """Interactive dashboard for inspecting FBG recordings and axle detections.
 
 Run with:
-    streamlit run fbg_analysis_dashboard.py
+    streamlit run legacy/fbg_analysis_dashboard.py
 
 The dashboard deliberately separates physical FBG identity from stored column
 position. It detects ascending versus descending wavelength order in every
@@ -30,11 +30,18 @@ from streamlit.errors import StreamlitAPIException
 from scipy.interpolate import CubicSpline
 from scipy.signal import detrend, fftconvolve, find_peaks, resample, welch
 
-from self_calibrating_axle_detector import (
-    AdaptiveSettings,
-    detect_adaptive_peaks,
-)
-from sensor12_peak_tracker import butterworth_process, sampling_rate
+try:
+    from .self_calibrating_axle_detector import (
+        AdaptiveSettings,
+        detect_adaptive_peaks,
+    )
+    from .sensor12_peak_tracker import butterworth_process, sampling_rate
+except ImportError:  # Support direct Streamlit execution of this legacy file.
+    from self_calibrating_axle_detector import (
+        AdaptiveSettings,
+        detect_adaptive_peaks,
+    )
+    from sensor12_peak_tracker import butterworth_process, sampling_rate
 
 
 TIMESTAMP_RE = re.compile(r"(\d{8}T\d{6},\d{3})Z")

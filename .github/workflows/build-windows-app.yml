@@ -11,7 +11,6 @@ on:
       - "packaging/Build_LIGHTRACK_EXE.ps1"
       - "packaging/Choose_Train_Monitoring_Data_Folder.cmd"
       - "packaging/README_EXE.md"
-      - "fbg_analysis_dashboard.py"
       - "fbg_analysis_dashboard_strict.py"
       - "train_monitoring_ui.py"
       - "recording_io.py"
@@ -20,8 +19,6 @@ on:
       - "assets/two_period_peak_change_mean_std_pm.csv"
       - "requirements.txt"
       - "requirements-build.txt"
-      - "self_calibrating_axle_detector.py"
-      - "sensor12_peak_tracker.py"
 
 permissions:
   contents: read
