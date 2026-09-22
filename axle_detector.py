@@ -1,8 +1,10 @@
-"""Final strict axle detector: all counting calculations in one module.
+"""Canonical latest axle detector: all counting calculations in one module.
 
 Start with detect_axles(). Inputs are a selected physical FBG's raw wavelength
 signal in nm and timestamps in seconds. Filtering, the 20 pm gate, calibration,
 polarity, and peak acceptance are implemented below without UI or file access.
+
+This is the detector imported by the current local UI and packaged releases.
 """
 from __future__ import annotations
 from dataclasses import dataclass

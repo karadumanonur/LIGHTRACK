@@ -828,9 +828,7 @@ def two_period_panel(
     return (error_bars + points).properties(width=width, height=430)
 
 
-def render_two_period_overview(
-    recordings: pd.DataFrame, use_bundled_summary: bool = True
-) -> None:
+def render_two_period_overview(recordings: pd.DataFrame) -> None:
     st.subheader("Detrended axle-amplitude comparison")
     st.caption(
         "Click a dot to inspect that recording."
@@ -840,20 +838,25 @@ def render_two_period_overview(
         list(range(1, 13)),
         key="trend_physical_fbg",
     )
-    if use_bundled_summary and TWO_PERIOD_SUMMARY.is_file():
+    if not TWO_PERIOD_SUMMARY.is_file():
+        st.error(
+            "The required Two Period summary CSV was not found: "
+            f"{TWO_PERIOD_SUMMARY}"
+        )
+        return
+    try:
         summary_stat = TWO_PERIOD_SUMMARY.stat()
         summary = load_two_period_summary(
             str(TWO_PERIOD_SUMMARY),
             file_signature=(summary_stat.st_mtime_ns, summary_stat.st_size),
         )
-        sensor_data = summary.loc[summary["physical_fbg"] == sensor].copy()
-    else:
-        recording_rows = tuple(
-            (str(row.path), row.timestamp, str(row.period))
-            for row in recordings.itertuples()
+    except (OSError, ValueError, pd.errors.ParserError) as error:
+        st.error(
+            "The Two Period summary CSV could not be loaded: "
+            f"{error}"
         )
-        with st.spinner(f"Calculating detrended raw axle heights for physical FBG {sensor}…"):
-            sensor_data = calculate_dataset_summary(recording_rows, sensor)
+        return
+    sensor_data = summary.loc[summary["physical_fbg"] == sensor].copy()
     if sensor_data.empty:
         st.error("No recordings with accepted axle peaks were available for this physical FBG.")
         return
@@ -1139,9 +1142,7 @@ def main() -> None:
         key="analysis_view",
     )
     if app_view == "Two-period amplitude overview":
-        render_two_period_overview(
-            recordings, use_bundled_summary=source_mode == "Local/server folder"
-        )
+        render_two_period_overview(recordings)
         return
 
     controls = st.columns([1.05, 1.65, 0.75, 0.95])

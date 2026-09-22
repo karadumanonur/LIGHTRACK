@@ -1,4 +1,7 @@
-"""Self-calibrating axle-peak detector for FBG recordings.
+"""Legacy/reference self-calibrating axle-peak detector for FBG recordings.
+
+The current Train Monitoring UI and packaged releases use ``axle_detector.py``.
+This module remains for historical standalone analysis and comparison.
 
 Uses fixed Butterworth filtering (0.5-40 Hz by default), followed by
 recording-specific background, height, prominence, peak-width, and valley
