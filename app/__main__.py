@@ -108,12 +108,13 @@ def measure(args) -> None:
                          last_s=0.0, detail="")
             db.put_count(con, r["id"], count_pad, args.engine, c)
             # A count of nothing means no passage to measure a response to,
-            # even when the engine left marks behind it did not confirm. One
-            # record in eighteen hundred is like this, and without the guard
-            # it draws a full-sized point among the empty recordings.
-            marks = (c.get("marks_s") or []) if c.get("axles") else []
-            power = {p: signals.passage_peaks(w[:, p - 1], fs, marks,
-                                              speed_kmh=c.get("speed_kmh"))
+            # even when the engine left marks behind it did not confirm, and
+            # `head_marks` gives every PAD no marks then. Otherwise each PAD is
+            # read at the moment its own head saw the counted axles.
+            at = engines.head_marks(args.engine, path, count_pad, c)
+            power = {p: (signals.passage_peaks(w[:, p - 1], fs, at[p],
+                                               speed_kmh=c.get("speed_kmh"))
+                         if at[p] is not None else None)
                      for p in power_pads}
             db.put_power(con, r["id"], power)
             if n % 50 == 0:

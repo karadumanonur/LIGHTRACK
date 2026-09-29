@@ -52,8 +52,9 @@ coupling_height_fraction = 0.30
 # A pad listed here is counted with these in place of the ones above; a pad
 # that is not listed uses them unchanged, so PAD 1 is untouched.
 #
-# PAD 10 is clamped rather than glued and writes about a fifth of what PAD 1
-# does. The thresholds are fractions of a level taken from recent peaks, so
+# PAD 10 is clamped rather than glued and writes about half of what PAD 1
+# does: 35 pm per axle against 65 from May to July, on the signal the counter
+# sees. The thresholds are fractions of a level taken from recent peaks, so
 # they follow the sensor down, and the rebound between bogies — a sixth of the
 # axle peak on PAD 1, over a quarter of it here — starts crossing them. Both
 # chains count it, which is why raising only the confirm threshold was not
@@ -85,6 +86,43 @@ fir_taps = 31
 peak_buffer = 8
 bootstrap_snr = 20.0
 quiet_block_pm = 5.0
+# Before a train has given three peaks the level comes from the trains before
+# it, or from absolute_gate_pm when there were none. Both are a memory of how
+# much the grating used to write, and a grating that suddenly writes less —
+# PAD 1 fell from about 65 pm to 4-30 pm between July and September — never
+# reaches them, so nothing arms and the memory is never corrected. While a
+# passage is visibly under way the level is lowered to what the last second
+# actually shows. "Visibly" is measured in the grating's own noise, not in
+# picometres: outside trains the largest excursion is 0.5 pm at the 99th
+# percentile against a noise of 0.02-0.07 pm, and September's weakest trains
+# still peak at 4 pm and more.
+presence_noise_sigmas = 50.0
+presence_min_pm = 1.0
+presence_window_s = 1.0
+# A block counts towards the noise only if it stays within this many noise
+# widths, once the noise is known. The fixed 5 pm alone lets a whole train
+# that writes 4 pm into the noise estimate.
+quiet_noise_sigmas = 15.0
+# The noise is the median over this many quiet blocks. Over four seconds it
+# was the median of the train: the rail starts moving a second and a half
+# before the first axle and the baseline lags between axles, and those blocks
+# pass as quiet. On 16 Sep 13:22 that took it from 0.047 to 0.30 pm while a
+# 4 pm train went by, keeping the presence test just above every axle. On the
+# September records it got wrong, ten, twenty and forty seconds count the same.
+noise_blocks = 200
+# A rail moves before the load reaches it: a slow bump ahead of the first
+# axle, or seconds of wiggles ahead of a slow heavy vehicle, one to four per
+# cent of what follows but a hundred times the noise. It settles the same way
+# after the last one. Anything leading a train under lead_fraction of the
+# tallest axle behind it, or trailing one under trail_fraction of the tallest
+# in the trail_s before it, is that, not an axle. On PAD 1 the real first
+# axles of the reference trains are all over 0.16 of the train behind them,
+# and the real last axles over a quarter of the bogie before them. Held back
+# on trains of fewer marks than edge_min_marks.
+lead_fraction = 0.10
+trail_fraction = 0.20
+trail_s = 1.0
+edge_min_marks = 4
 initial_speed_kmh = 90.0
 min_speed_kmh = 20.0
 max_speed_kmh = 200.0

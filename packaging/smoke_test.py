@@ -10,10 +10,9 @@ run the same code over the same bytes, so they must agree; if a Mac and a
 Windows machine disagree about a made-up train they would disagree about a
 real one, and that is worth failing a build over.
 
-Asude's engine finds nothing in this record, which is expected — hers looks
-for peaks above a prominence in a band this signal has little energy in. What
-is checked there is that it runs at all and returns a trace of the right
-length, since its failure mode is an import that never happens.
+What is checked on Asude's engine is that it runs at all and returns a trace
+of the right length, since its failure mode is an import that never happens;
+its count on a made-up train says nothing about a real one.
 
     python packaging/smoke_test.py dist/LIGHTRACK.exe records/
     python packaging/smoke_test.py /Applications/LIGHTRACK.app records/

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 import numpy as np
 from scipy.signal import firwin, lfilter, lfilter_zi
@@ -36,7 +37,11 @@ class Axle:
 
 @dataclass
 class Train:
-    """One train, closed when the line has been quiet long enough."""
+    """One train, closed when the line has been quiet long enough.
+
+    The marks are where each chain found the axles it kept, once the train's
+    edges have been judged; what the counter threw away is not among them.
+    """
     axles: int
     n_x: int
     n_d: int
@@ -44,6 +49,8 @@ class Train:
     speed_kmh: float
     first_index: int
     last_index: int
+    x_marks: list = field(default_factory=list)
+    d_marks: list = field(default_factory=list)
 
 
 def safety_for(pad: int | None) -> dict | None:
@@ -57,7 +64,7 @@ def safety_for(pad: int | None) -> dict | None:
 class StreamingCounter:
 
     # Settings for a grating that is not the one the thresholds were built on.
-    # PAD 1 writes about 95 pm on a passing train and PAD 10 about 17, and the
+    # PAD 1 writes about 65 pm per axle and PAD 10 about half of it, and the
     # thresholds are fractions of a level taken from recent peaks, so they
     # follow the sensor down: structure between bogies that is a small
     # fraction of the axle peak on a well-bonded grating becomes a large one
@@ -74,10 +81,12 @@ class StreamingCounter:
     _base: deque = field(default_factory=lambda: deque(maxlen=int(
         CONFIG["baseline"]["rolling_window_samples"])), repr=False)
     _peaks: deque = field(default_factory=lambda: deque(maxlen=16), repr=False)
-    _noise: deque = field(default_factory=lambda: deque(maxlen=40), repr=False)
+    _noise: deque = field(default_factory=lambda: deque(
+        maxlen=int(RT["noise_blocks"])), repr=False)
     _gaps: deque = field(default_factory=lambda: deque(maxlen=32), repr=False)
     _last_peak_i: int | None = None
     _armed: bool = False
+    _hold: bool = False
     _i_rise: int = 0
     _run_max: float = 0.0
     _run_max_i: int = 0
@@ -87,6 +96,8 @@ class StreamingCounter:
     _d_seg: list = field(default_factory=list, repr=False)
     _d_idx: list = field(default_factory=list, repr=False)
     _x_idx: list = field(default_factory=list, repr=False)
+    _d_h: list = field(default_factory=list, repr=False)
+    _x_h: list = field(default_factory=list, repr=False)
     _first_axle: int | None = None
     _last_axle: int | None = None
     _done: list = field(default_factory=list, repr=False)
@@ -98,6 +109,7 @@ class StreamingCounter:
     _since_max: float = 0.0
     _unlocked_at: int = -1
     _levels_seen: deque = field(default_factory=lambda: deque(maxlen=20), repr=False)
+    _recent: deque = field(default_factory=deque, repr=False)
     _provisional: bool = True
     _zi: np.ndarray | None = None
     _b: np.ndarray | None = None
@@ -107,6 +119,8 @@ class StreamingCounter:
         self._saf = SAF if not self.safety else {**SAF, **self.safety}
 
         self._peaks = deque(maxlen=int(self.n_peaks))
+        blocks = int(np.ceil(RT["presence_window_s"] * FS / self.block))
+        self._recent = deque(maxlen=max(1, blocks))
         self._v = float(self.v0_kmh)
         self._design(self._v)
 
@@ -219,6 +233,7 @@ class StreamingCounter:
         or whose last axle is still running when the data ends.
         """
 
+        self._drop_edges()
         if len(self._peaks) >= 3:
             self._levels_seen.append(
                 float(np.percentile(self._peaks, self._saf["x_peak_percentile"])))
@@ -230,7 +245,8 @@ class StreamingCounter:
             self._done.append(Train(
                 axles=self.count, n_x=self._n_x, n_d=self._n_d, agree=self.agree,
                 speed_kmh=self._v, first_index=self._first_axle,
-                last_index=self._last_axle))
+                last_index=self._last_axle, x_marks=list(self._x_idx),
+                d_marks=list(self._d_idx)))
         self._gaps.clear()
         self._peaks.clear()
         self._provisional = True
@@ -239,8 +255,105 @@ class StreamingCounter:
         self._unlocked_at = -1
         self._d_idx.clear()
         self._x_idx.clear()
+        self._d_h.clear()
+        self._x_h.clear()
         self._n_x = self._n_d = 0
         self._first_axle = self._last_axle = None
+
+    def _drop_edges(self) -> None:
+        """Throw away what the train pushed ahead of itself and left behind.
+
+        A rail lifts before the load reaches it, and that shows on the grating
+        as a slow bump a third of a second ahead of the first axle. It is one
+        to five picometres against axles of a hundred and more — one to four
+        per cent of them — but it is a hundred times the noise, so a level
+        taken from what is visible takes it for the train and counts it.
+
+        It is thrown away from the front of the train: anything leading that
+        is under `lead_fraction` of the tallest axle behind it goes, and the
+        first axle that is not stops the rule. It is measured against the axles
+        behind it and not against the train's median, because those are the
+        load that moved the rail: against the median a locomotive's bump sits
+        among the wagons, and 20 May 18:38 pushed 5.5 pm ahead of a 149 pm
+        axle, 4 % of it but 12 % of the train. A slow heavy vehicle moves the
+        rail for seconds before it arrives, so nothing nearer than the whole
+        train will do: on 22 Jul 11:35 three axles of 260 pm came four seconds
+        after the first wiggle. No real first axle of the 1596 reference
+        trains is under 16 % of the tallest behind it.
+
+        The rail settles the same way once the load has gone, a swell a
+        quarter of a second after the last axle: on 19 May 13:36 one of 3.1 pm
+        was counted as a 137th axle of 136. It is judged against the last
+        bogie, the axles in the `trail_s` before it, and not against the
+        train, because the last axle of a train is a bogie's trailing one and
+        writes a third of its partner: on 21 Jul 19:58 a real one of 16 pm
+        was under a tenth of the locomotive at the other end. Against its
+        bogie no real last axle of 1503 trains counted right is between a
+        tenth and a quarter, and the swells reach an eighth, so `trail_fraction`
+        sits at a fifth.
+
+        An end the record cut off is not judged: what leads a record that
+        opens on a train is the middle of it, and what trails one that closes
+        on a train is not its end.
+        """
+        marks = sorted([(i, h, self._x_idx, self._x_h) for i, h in
+                        zip(self._x_idx, self._x_h)]
+                       + [(i, h, self._d_idx, self._d_h) for i, h in
+                          zip(self._d_idx, self._d_h)], key=lambda m: m[0])
+        if len(marks) < RT["edge_min_marks"]:
+            return
+        at = [m[0] for m in marks]
+        hs = [m[1] for m in marks]
+        grace, tail = RT["edge_grace_s"] * FS, RT["trail_s"] * FS
+        front = []
+        if at[0] >= grace:
+            for k in range(len(marks)):
+                if hs[k] >= RT["lead_fraction"] * max(hs[k + 1:], default=0.0):
+                    break
+                front.append(k)
+        back = []
+        if self._n - at[-1] >= grace:
+            for k in range(len(marks) - 1, -1, -1):
+                before = [h for a, h in zip(at[:k], hs[:k]) if a >= at[k] - tail]
+                if k in front or hs[k] >= RT["trail_fraction"] * max(before, default=0.0):
+                    break
+                back.append(k)
+        for k in front + back:
+            i, _, idx, heights = marks[k]
+            j = idx.index(i)
+            del idx[j]
+            del heights[j]
+            if idx is self._x_idx:
+                self._n_x = max(0, self._n_x - 1)
+            else:
+                self._n_d = max(0, self._n_d - 1)
+        if self._x_idx or self._d_idx:
+            self._first_axle = min(self._x_idx + self._d_idx)
+            if back:
+                self._last_axle = max(self._x_idx + self._d_idx)
+
+    def carry(self, prev: "StreamingCounter") -> None:
+        """Start from what the record before this one had learned.
+
+        A live counter never opens in the middle of a train; one reading a
+        record that continues another does, and then it has no quiet stretch
+        to take the noise from and nothing but the absolute gate for a level.
+        September on PAD 1 lost whole trains that way: 17 Sep 09:09 carried 84
+        axles of 8-12 pm into a new file and the counter stood at 39.
+
+        So the baseline, the noise, the levels, the last second and the speed
+        go on from where `prev` stopped, as they would have in a single stream.
+        What it counted does not: every axle here is this record's own. An axle
+        `prev` counted as it ended is still falling here, and with the baseline
+        carried over it is tall enough to arm again, so nothing arms until it
+        has fallen back under the confirm threshold.
+        """
+        self._hold = prev._hold
+        self._base.extend(prev._base)
+        self._noise.extend(prev._noise)
+        self._levels_seen.extend(prev._levels_seen)
+        self._recent.extend(prev._recent)
+        self._v, self._b, self._zi = prev._v, prev._b.copy(), prev._zi.copy()
 
     def pop_trains(self) -> list[Train]:
         """Trains finished since the last call."""
@@ -273,6 +386,7 @@ class StreamingCounter:
         self._last_axle = self._run_max_i
         self._observe(self._run_max)
         self._armed = False
+        self._hold = True
 
     def flush(self) -> list[Train]:
         """Close the train still in progress, if any, and return everything."""
@@ -289,13 +403,20 @@ class StreamingCounter:
         which is a 45 % spread, and a missed axle turns a bogie gap into a
         coupling gap and inflates it further. A measured speed replaces it and
         is not overwritten afterwards.
+
+        A gap no bogie could take even at the slowest train is not a bogie gap,
+        and is not read as one. When a weak grating loses the trailing axles,
+        what is left is the gaps between vehicles, and dividing the wheelbase
+        by those put a 100 km/h train at 16: the duration rule then asked for
+        peaks five times too wide and nothing further counted (16 Sep 12:58).
         """
         if not self._provisional:
             return
         if len(self._gaps) < 2:
             return
         g = np.asarray(self._gaps, dtype=float)
-        short = g[g <= np.median(g)]
+        longest = RT["wheelbase_m"] / (RT["min_speed_kmh"] / 3.6) * FS
+        short = g[(g <= np.median(g)) & (g <= longest)]
         if not len(short):
             return
         v = 3.6 * RT["wheelbase_m"] / (float(np.median(short)) / FS)
@@ -314,15 +435,35 @@ class StreamingCounter:
         self._provisional = False
 
     def _level(self) -> float:
+        """What the thresholds are fractions of.
 
+        Once a train has given three peaks, a percentile of its recent peaks.
+        Before that, a memory: the levels of the trains before it, or the
+        absolute gate when there were none. A memory is only right while the
+        grating writes what it used to. When it suddenly writes less, every
+        axle stays under half the remembered level, nothing arms, nothing is
+        confirmed, and the memory that is wrong is the only thing that could
+        have been corrected — September on PAD 1, where a 4.5 pm freight
+        train went past a level of 39.
+
+        So while a passage is visibly under way the memory is capped by what
+        the last second shows. Visible means clear of the grating's own noise
+        by `presence_noise_sigmas`, which empty stretches do not reach. The
+        cap only ever lowers the level: a grating writing what it always did
+        shows more than the memory, and is counted exactly as before.
+        """
         if len(self._peaks) >= 3:
             return float(np.percentile(self._peaks, self._saf["x_peak_percentile"]))
 
         floor = (float(np.median(self._levels_seen)) if self._levels_seen
                  else float(CONFIG["detect"]["absolute_gate_pm"]))
-        if self._noise:
-            return max(floor, float(RT["bootstrap_snr"] * np.median(self._noise)))
-        return floor
+        if not self._noise:
+            return floor
+        noise = float(np.median(self._noise))
+        seen = max(self._recent) if self._recent else 0.0
+        if seen >= max(RT["presence_noise_sigmas"] * noise, RT["presence_min_pm"]):
+            floor = min(floor, seen)
+        return max(floor, float(RT["bootstrap_snr"] * noise))
 
     def _gate_pm(self) -> float:
 
@@ -425,10 +566,23 @@ class StreamingCounter:
 
         The floor is measured against the recent peaks rather than the largest
         seen so far, because a running maximum only ever ratchets upward.
+
+        It also looks back when a peak taller than all of them arrives: what
+        came before and is under the floor of the new one stops defining the
+        level. The rail moving ahead of a heavy vehicle is seen first, at a
+        percent of what follows, and left in the buffer it held the level at
+        1.2 pm under a 143 pm axle, so every rebound after it counted
+        (24 Jul 10:27).
         """
+        floor = self._saf["x_peak_floor_fraction"]
         recent = max(self._peaks) if self._peaks else amplitude
-        if amplitude >= self._saf["x_peak_floor_fraction"] * recent:
-            self._peaks.append(amplitude)
+        if amplitude < floor * recent:
+            return
+        self._peaks.append(amplitude)
+        if amplitude > recent:
+            kept = [p for p in self._peaks if p >= floor * amplitude]
+            self._peaks.clear()
+            self._peaks.extend(kept)
 
     def _close_d_segment(self, need: int) -> None:
 
@@ -442,6 +596,7 @@ class StreamingCounter:
                 and np.count_nonzero(d[kmax:] < 0) >= 2):
             self._n_d += 1
             self._d_idx.append(self._d_start + kmax)
+            self._d_h.append(float(seg[kmax]))
             self._observe(float(seg[kmax]))
 
     # ------------------------------------------------------------------ API
@@ -455,8 +610,12 @@ class StreamingCounter:
             pm = (chunk - base) * 1000.0
 
             y, self._zi = lfilter(self._b, 1.0, pm, zi=self._zi)
+            self._recent.append(float(np.max(y)))
 
-            if not self._armed and np.max(np.abs(y)) < RT["quiet_block_pm"]:
+            quiet = RT["quiet_block_pm"]
+            if len(self._noise) >= 5:
+                quiet = min(quiet, RT["quiet_noise_sigmas"] * float(np.median(self._noise)))
+            if not self._armed and np.max(np.abs(y)) < quiet:
                 self._noise.append(float(np.median(np.abs(y)) * 1.4826) or 1e-6)
 
             noise = float(np.median(self._noise)) if self._noise else 0.0
@@ -491,7 +650,9 @@ class StreamingCounter:
                     thr = min(thr_rise, self._expect_h)
 
                 if not self._armed:
-                    if v > thr:
+                    if self._hold:
+                        self._hold = v >= thr_fall
+                    elif v > thr:
                         self._armed, self._i_rise = True, i
                         self._run_max, self._run_max_i = v, i
                 else:
@@ -510,6 +671,7 @@ class StreamingCounter:
                             out.append(Axle(self._run_max_i, self._run_max))
                             self._n_x += 1
                             self._x_idx.append(self._run_max_i)
+                            self._x_h.append(float(self._run_max))
                             if self._first_axle is None:
                                 self._first_axle = self._run_max_i
                             self._last_axle = self._run_max_i
@@ -525,6 +687,42 @@ class StreamingCounter:
                         self._armed = False
             self._n += len(chunk)
         return out
+
+
+@lru_cache(maxsize=4)
+def _channels(path: str) -> np.ndarray:
+    from .reader import read_channels
+    return read_channels(path)
+
+
+def before(path, pad: int, depth: int = 3) -> StreamingCounter | None:
+    """The record `path` carries straight on from, counted to its end.
+
+    None when the record starts on its own. A train long enough to run through
+    several files is followed back `depth` records.
+    """
+    from .reader import previous
+    prev = previous(path) if depth > 0 else None
+    if prev is None:
+        return None
+    p = counter_for(prev, pad, depth - 1)
+    col = _channels(str(prev))[:, pad - 1]
+    for s in range(0, len(col), p.block):
+        p.push(col[s:s + p.block])
+    p.flush()
+    return p
+
+
+def counter_for(path, pad: int, depth: int = 3) -> StreamingCounter:
+    """A counter for one record of `pad`, carrying on from the record before.
+
+    See `StreamingCounter.carry` for why.
+    """
+    c = StreamingCounter(safety=safety_for(pad))
+    p = before(path, pad, depth)
+    if p is not None:
+        c.carry(p)
+    return c
 
 
 def count_stream(raw_nm: np.ndarray, **kw) -> tuple[int, list[Axle], float]:

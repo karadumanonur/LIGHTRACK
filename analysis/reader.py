@@ -86,6 +86,44 @@ def read_channels(path: str | Path) -> np.ndarray:
     return w[:, [CH_OF_PAD[p] for p in range(1, N_CH + 1)]]
 
 
+def clock(path: str | Path) -> tuple[float, float]:
+    """The interrogator's own time at the first and at the last row."""
+    path = Path(path)
+    dec = sniff_decimal(path)
+    with open(path, "r", encoding="ascii") as fh:
+        fh.readline()
+        first = fh.readline()
+    with open(path, "rb") as fh:
+        fh.seek(0, 2)
+        fh.seek(max(0, fh.tell() - 4096))
+        last = [ln for ln in fh.read().decode("ascii").splitlines() if ln.strip()][-1]
+    t = lambda ln: float(ln.split("\t")[0].replace(",", ".") if dec == ","
+                         else ln.split("\t")[0])
+    return t(first), t(last)
+
+
+def previous(path: str | Path) -> Path | None:
+    """The record this one carries straight on from, if there is one.
+
+    The interrogator cuts a recording at about two and a half minutes, and a
+    train still passing then goes on in the next file: its clock starts one
+    sample after the last one ended. Counted on its own, such a record opens in
+    the middle of a train with nothing to say how quiet the grating is or how
+    much it writes.
+    """
+    path = Path(path)
+    names = sorted(path.parent.glob("*.txt"))
+    k = next((i for i, p in enumerate(names) if p.name == path.name), None)
+    if not k:
+        return None
+    try:
+        start, _ = clock(path)
+        _, end = clock(names[k - 1])
+    except (FormatError, OSError, ValueError, IndexError):
+        return None
+    return names[k - 1] if 0.0 < start - end < 1.5 / FS else None
+
+
 def blocks(signal: np.ndarray, size: int | None = None) -> Iterator[np.ndarray]:
     """Cut a channel into the blocks a live feed would deliver."""
     size = int(size or CONFIG["realtime"]["block_samples"])

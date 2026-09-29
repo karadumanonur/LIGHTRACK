@@ -96,11 +96,21 @@ def put_record(con, folder: str, file: str, utc: str, local: str, epoch: int,
 
 
 def put_power(con, record_id: int, values: dict) -> None:
+    """Store each PAD's response; a PAD given as None had none to measure.
+
+    None removes the row rather than leaving an older number standing, so a
+    grating that could not be measured this time is drawn as missing, not as
+    whatever it was measured as before.
+    """
     con.executemany(
         "INSERT INTO power (record_id, pad, mean, sd) VALUES (?,?,?,?)"
         " ON CONFLICT (record_id, pad) DO UPDATE SET"
         " mean=excluded.mean, sd=excluded.sd",
-        [(record_id, pad, m, s) for pad, (m, s) in sorted(values.items())])
+        [(record_id, pad, v[0], v[1]) for pad, v in sorted(values.items())
+         if v is not None])
+    con.executemany(
+        "DELETE FROM power WHERE record_id = ? AND pad = ?",
+        [(record_id, pad) for pad, v in values.items() if v is None])
 
 
 def put_count(con, record_id: int, pad: int, engine: str, r: dict) -> None:

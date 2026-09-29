@@ -20,7 +20,7 @@ on:
       tag:
         description: the release tag to attach the disk image to
         required: true
-        default: v1.4
+        default: v1.5
 
 jobs:
   build:
@@ -49,15 +49,16 @@ jobs:
 
       # Asude's engine lives on her branch and is not vendored into main, so
       # it is laid down here the same way `lightrack.compare` lays it down
-      # locally. Without this the disk image would ship with one engine while
-      # the Windows build ships with two.
+      # locally. Without this the disk image would ship with fewer engines than
+      # the Windows build does.
       - name: Lay down Asude's engine
         working-directory: lightrack
         run: |
           mkdir -p .sides/asude
-          git show origin/Asude-Branch:sensor12_peak_tracker.py \
-            > .sides/asude/sensor12_peak_tracker.py
-          test -s .sides/asude/sensor12_peak_tracker.py
+          for f in axle_detector.py recording_io.py; do
+            git show origin/Asude-Branch:$f > .sides/asude/$f
+            test -s .sides/asude/$f
+          done
 
       - name: Install what it needs
         working-directory: lightrack

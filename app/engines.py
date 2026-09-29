@@ -1,4 +1,4 @@
-"""The two counting engines, behind one interface.
+"""The counting engines, behind one interface.
 
 Each engine is imported rather than copied, so what the window shows is the
 code itself and never a transcription of it.
@@ -19,8 +19,9 @@ An engine answers two questions and they are deliberately separate:
 
 The second is what makes a count checkable instead of asserted, and the two
 engines answer it differently on purpose. One has thresholds that move with a
-level and two chains that can disagree; the other band-passes and takes peaks
-above a prominence, with no thresholds to draw and one kind of mark. Flattening
+level and two chains that can disagree; the other band-passes, learns one
+height threshold per recording from its quiet background, and has one kind of
+mark. Flattening
 that into a common shape would hide the only interesting thing about comparing
 them, so the trace carries whatever guides and marks the engine actually has.
 """
@@ -49,8 +50,9 @@ ENGINES = {
         name="Asude",
         worktree=SIDES / "asude",
         fallback=None,
-        about="detrend, Butterworth band pass, positive peaks above an "
-              "adaptive prominence"),
+        about="detrend, 0.5-40 Hz Butterworth, a 20 pm event gate, then peaks "
+              "above height and prominence thresholds learned from each "
+              "recording's quiet background"),
 }
 
 
@@ -72,7 +74,7 @@ def ready(engine: str) -> bool:
         return False
     if engine == "onur":
         return (h / "analysis" / "counter.py").exists()
-    return (h / "sensor12_peak_tracker.py").exists()
+    return (h / "axle_detector.py").exists() and (h / "recording_io.py").exists()
 
 
 def available() -> list[dict]:
@@ -88,9 +90,9 @@ def _path(engine: str) -> None:
 
 def _onur_trace(path: Path, pad: int) -> dict:
     _path("onur")
-    from analysis import StreamingCounter                       # noqa: E402
     from analysis.config import CONFIG                          # noqa: E402
-    from analysis.counter import safety_for, samples_per_peak   # noqa: E402
+    from analysis.counter import (counter_for, safety_for,      # noqa: E402
+                                  samples_per_peak)
     from analysis.reader import read_channels                   # noqa: E402
     from scipy.signal import firwin, lfilter, lfilter_zi
     import pandas as pd
@@ -100,16 +102,13 @@ def _onur_trace(path: Path, pad: int) -> dict:
     win = CONFIG["baseline"]["rolling_window_samples"]
     col = read_channels(path)[:, pad - 1]
 
-    c = StreamingCounter(safety=safety_for(pad))
-    hits, lv, tm = [], [], []
+    c = counter_for(path, pad)
+    lv, tm = [], []
     block = int(rt["block_samples"])
     for s in range(0, len(col), block):
-        for a in c.push(col[s:s + block]):
-            hits.append(int(a.index))
+        c.push(col[s:s + block])
         lv.append(c.level_pm)
         tm.append(s + block)
-    d_only = [int(i) for i in c._d_idx
-              if not any(abs(int(i) - h) < 0.05 * fs for h in hits)]
     seam, maybe = [], []
     if c._armed and c._first_axle is not None:
         t_min = saf["x_min_duration_fraction"] * samples_per_peak(c.speed_kmh)
@@ -118,6 +117,11 @@ def _onur_trace(path: Path, pad: int) -> dict:
         else:
             maybe.append(int(c._run_max_i))
     trains = c.flush()
+    hits = sorted({int(i) for t in trains for i in t.x_marks})
+    tol = (safety_for(pad) or {}).get("same_axle_tolerance_s",
+                                      saf["same_axle_tolerance_s"]) * fs
+    d_only = [int(i) for t in trains for i in t.d_marks
+              if not any(abs(int(i) - h) <= tol for h in hits)]
 
     trail = pd.Series(col).rolling(win, min_periods=1).median().to_numpy()
     from analysis.counter import lowpass_cutoff_hz               # noqa: E402
@@ -146,43 +150,44 @@ def _onur_trace(path: Path, pad: int) -> dict:
         n_d=int(sum(t.n_d for t in trains)))
 
 
-def _pad_column(path: Path, pad: int) -> int:
-    """Which wavelength column of this file holds that PAD.
-
-    Her loader takes a column by position, and the position of a PAD is not
-    the same in every delivery: `detected` and `poc1` are written from the
-    long wavelength down, `Valid_data_new` from the short wavelength up.
-    Passing the PAD number straight through reads PAD 12 where PAD 1 was
-    meant — a different grating on a different rail — and the window then
-    shows her algorithm failing at something it was never given.
-    """
-    from analysis.config import CONFIG                          # noqa: E402
-    from analysis.reader import sniff_column_order, sniff_decimal  # noqa: E402
-    order = sniff_column_order(path, sniff_decimal(path))
-    down = CONFIG["channel_to_pad"]["pad_of_channel"].index(pad)
-    return down + 1 if order == "desc" else 12 - down
-
-
 def _asude_trace(path: Path, pad: int) -> dict:
-    _path("asude")
-    import matplotlib                                           # noqa: E402
-    matplotlib.use("Agg")
-    import sensor12_peak_tracker as tracker                     # noqa: E402
+    """Her final detector, called the way her Train Monitoring window calls it.
 
-    time_s, raw_nm = tracker.load_fbg_file(path, _pad_column(path, pad))
-    fs = tracker.sampling_rate(time_s)
-    y = tracker.butterworth_process(raw_nm, fs, 0.5, 40.0)
-    idx, _, _ = tracker.detect_peaks(y, fs, "positive", 8.0, None, 0.06, 0.04)
-    idx = [int(i) for i in idx]
+    Her own reader picks the PAD's column: it compares the median wavelength
+    of the first and last columns, so a delivery written from the long
+    wavelength down and one written from the short wavelength up both give the
+    grating that was asked for. Her detector then band-passes, gates the
+    recording at 20 pm and learns its thresholds from the quiet background.
+    The height threshold is drawn where it sits on the signal: the learned
+    background plus the threshold, in the direction of the chosen polarity.
+    """
+    _path("asude")
+    from recording_io import (load_physical_fbg_from_frame,      # noqa: E402
+                              load_recording_frame)
+    from axle_detector import detect_axles                      # noqa: E402
+
+    got = load_physical_fbg_from_frame(load_recording_frame(str(path)), pad)
+    time_s = np.asarray(got["time_s"], dtype=float)
+    det = detect_axles(got["raw_nm"], time_s, pad,
+                       stored_column=int(got["stored_column"]),
+                       stored_order=str(got["stored_order"]))
+    y = np.asarray(det.filtered_signal_nm, dtype=float) * 1000.0
+    idx = [int(i) for i in det.indices]
+    guides = []
+    side = det.polarity_result
+    if side is not None and np.isfinite(side.height_threshold_nm):
+        level = (det.background_location_nm
+                 + side.sign * side.height_threshold_nm) * 1000.0
+        guides.append(("learned height", TERRA, np.full(len(y), level)))
     return dict(
-        y=np.asarray(y, dtype=float) * 1000.0, fs=float(fs),
+        y=y, fs=500.0,
         units="band-passed [pm]",
-        guides=[],
-        marks=[("peak above the prominence", INK, idx)],
+        guides=guides,
+        marks=[(f"{det.selected_polarity} peak, {det.quality_label}", INK, idx)],
         axles=len(idx), trains=1 if idx else 0, speed_kmh=None,
         first_s=round(float(time_s[idx[0]] - time_s[0]), 2) if idx else 0.0,
         last_s=round(float(time_s[idx[-1]] - time_s[0]), 2) if idx else 0.0,
-        detail="", n_x=len(idx), n_d=len(idx))
+        detail=det.quality_label, n_x=len(idx), n_d=len(idx))
 
 
 RUNNERS = {"onur": _onur_trace, "asude": _asude_trace}
@@ -202,7 +207,7 @@ def count(engine: str, path: Path, pad: int) -> dict:
     """The number, and where the axles are.
 
     The marks come back with it because every sensor is measured at the axles
-    this head found: one train, one set of moments, twelve responses to it.
+    this PAD found; `head_marks` says when each other PAD saw them.
     """
     r = run(engine, path, pad)
     fs = r["fs"]
@@ -211,6 +216,60 @@ def count(engine: str, path: Path, pad: int) -> dict:
                              "last_s", "detail")}
     out["marks_s"] = [round(i / fs, 4) for i in marks]
     return out
+
+
+def heads() -> dict[int, int]:
+    """Which of the three heads along the rail each PAD belongs to."""
+    from ..config import CONFIG as SITE
+    by_channel = SITE["channel_to_pad"]["head_of_channel"]
+    return {pad: int(by_channel[12 - pad]) for pad in range(1, 13)}
+
+
+def head_marks(engine: str, path: Path, pad: int, counted: dict) -> dict:
+    """The axles one PAD counted, at the moment each other PAD saw them.
+
+    The twelve gratings are on three heads, fifteen and then ten metres apart
+    along the rail, so a train reaches them at three different moments: at
+    87 km/h head 2 sees an axle 0.6 s after head 1 and head 3 a second after
+    it, in either order depending on the direction. Reading every PAD at the
+    counting PAD's moments reads the heads it is not on between their axles,
+    and a grating writing 120 pm was measured at 18.
+
+    So each other head is shifted by its own lag, taken from where the train
+    starts on that head: the first PAD of that head whose count agrees with
+    the counting PAD's to within a tenth gives the time of its first axle. The
+    lag has to be one a train can have — the head distance at 20 to 200 km/h —
+    or the next PAD of the head is tried; if none qualifies the head is left
+    unmeasured for this record rather than measured at the wrong moment.
+    """
+    from ..config import CONFIG as SITE
+    head = heads()
+    geo = SITE["geometry"]
+    along = {1: 0.0, 2: float(geo["head1_to_head2_m"]),
+             3: float(geo["head1_to_head2_m"]) + float(geo["head2_to_head3_m"])}
+    marks = list(counted.get("marks_s") or []) if counted.get("axles") else []
+    if not marks:
+        return {p: [] for p in head}
+
+    lag_of = {head[pad]: 0.0}
+    enough = max(1, 0.1 * counted["axles"])
+    for h in sorted(set(head.values()) - {head[pad]}):
+        d = abs(along[h] - along[head[pad]])
+        lo, hi = d / (200.0 / 3.6), d / (20.0 / 3.6)
+        for q in (p for p, hh in head.items() if hh == h):
+            try:
+                c = count(engine, path, q)
+            except Exception:
+                continue
+            if not c.get("axles"):
+                continue
+            lag = float(c["first_s"]) - float(counted["first_s"])
+            if (lo <= abs(lag) <= hi
+                    and abs(int(c["axles"]) - int(counted["axles"])) <= enough):
+                lag_of[h] = lag
+                break
+    return {p: ([round(t + lag_of[h], 4) for t in marks] if h in lag_of else None)
+            for p, h in head.items()}
 
 
 def trace(engine: str, path: Path, pad: int, span=None, step: int = 6) -> dict:

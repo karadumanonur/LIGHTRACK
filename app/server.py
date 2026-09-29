@@ -160,8 +160,10 @@ class App:
                 except Exception as exc:
                     self.job.set(message=f"{r['file']}: {exc}")
                     continue
-                marks = c.get("marks_s") or []
-                power = {p: signals.passage_peaks(w[:, p - 1], fs, marks)
+                at = engines.head_marks(engine, path, pad, c)
+                power = {p: (signals.passage_peaks(w[:, p - 1], fs, at[p],
+                                                   speed_kmh=c.get("speed_kmh"))
+                             if at[p] is not None else None)
                          for p in PADS}
                 with db.open_db(self.database) as con:
                     db.put_count(con, rid, pad, engine, c)

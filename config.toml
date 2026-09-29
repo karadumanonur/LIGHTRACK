@@ -14,7 +14,7 @@
 # See config.py for the resolution order. Absolute values here still work.
 data_dir = "../poc1"
 glob     = "*.txt"
-out_dir  = "../out"
+out_dir  = "../analysis/out/early"
 
 [format]
 # [measured, Phase 0] TAB-delimited text.

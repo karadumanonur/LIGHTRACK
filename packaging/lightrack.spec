@@ -34,9 +34,10 @@ datas = [
     (str(REPO / "config.toml"), "lightrack"),
 ]
 
-asude = REPO / ".sides" / "asude" / "sensor12_peak_tracker.py"
-if asude.exists():
-    datas.append((str(asude), "lightrack/.sides/asude"))
+for name in ("axle_detector.py", "recording_io.py"):
+    asude = REPO / ".sides" / "asude" / name
+    if asude.exists():
+        datas.append((str(asude), "lightrack/.sides/asude"))
 
 datas += collect_data_files("tzdata")
 
@@ -64,7 +65,7 @@ a = Analysis(
 pyz = PYZ(a.pure)
 
 MAC = sys.platform == "darwin"
-VERSION = "1.4"
+VERSION = "1.5"
 
 # Windows gets one file, which is the whole point of handing someone a
 # program. A Mac cannot: an .app is a folder by definition, and wrapping a

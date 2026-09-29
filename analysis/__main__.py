@@ -10,7 +10,7 @@ import argparse
 from pathlib import Path
 
 from .config import CONFIG
-from .counter import StreamingCounter, compare_heads
+from .counter import compare_heads, counter_for
 from .reader import blocks, read_channels
 
 FS = CONFIG["acquisition"]["fs_hz"]
@@ -53,8 +53,7 @@ def main() -> None:
         counters = {}
         for pad in (args.pad, args.partner, args.direction_pad):
             if pad and pad not in counters:
-                c = StreamingCounter(block=args.block or
-                                     CONFIG["realtime"]["block_samples"])
+                c = counter_for(path, pad)
                 for b in blocks(w[:, pad - 1], args.block):
                     c.push(b)
                 counters[pad] = c
